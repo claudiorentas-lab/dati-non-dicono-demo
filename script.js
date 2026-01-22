@@ -60,14 +60,14 @@ async function runAnalysis() {
   try {
     // 2× per OCR più robusto su cifre e virgole
     const big = await upscale2x(upImage);
-    const res = await Tesseract.recognize(big, TESS_LANGS_PREF, { langPath: TESS_LANG_PATH }); // nessun logger
+    const res = await Tesseract.recognize(big, 'ita+eng'); // nessun logger
     text = (res.data && res.data.text) ? res.data.text : '';
   } catch (err) {
     console.warn('[OCR] ita+eng non disponibile, fallback a eng:', err);
     usedLang = TESS_LANGS_FALLBACK;
     try {
       const big = await upscale2x(upImage);
-      const res2 = await Tesseract.recognize(big, TESS_LANGS_FALLBACK, { langPath: TESS_LANG_PATH });
+      const res2 = await Tesseract.recognize(big, 'eng');
       text = (res2.data && res2.data.text) ? res2.data.text : '';
     } catch (e2) {
       console.error('[OCR fallback] error:', e2);
