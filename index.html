@@ -9,11 +9,11 @@
   <!-- CSS -->
   <link rel="stylesheet" href="style.css" />
 
-  <!-- Librerie: caricale prima del tuo script -->
+  <!-- Librerie: caricale PRIMA del tuo script (ordine preservato con defer) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js" defer></script>
   <script src="https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js" defer></script>
 
-  <!-- La tua app (usa le librerie sopra) -->
+  <!-- La tua app (usa p5 + Tesseract) -->
   <script src="script.js" defer></script>
 </head>
 <body>
@@ -37,11 +37,18 @@
     <div class="left">
       <h2>Narrazione (data humanism)</h2>
       <div id="narrativeBox" class="narrative"></div>
+
       <h3>Numeri estratti</h3>
       <div id="numbersBox" class="numbers"></div>
+
+      <h3 class="debugTitle">Debug (valori riconosciuti)</h3>
+      <div id="metricsBox" class="metrics"></div>
+
       <p class="note">Tutto avviene in locale nel browser. Nessun dato lascia questa pagina.</p>
     </div>
+
     <div class="right">
+      <!-- Il canvas p5.js viene creato via script -->
       <div id="canvasHost"></div>
     </div>
   </main>
