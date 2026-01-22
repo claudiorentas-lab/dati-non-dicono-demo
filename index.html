@@ -3,15 +3,18 @@
 <html lang="it">
 <head>
   <meta charset="utf-8" />
-  <title>Quello che i dati non dicono — Demo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quello che i dati non dicono — Demo</title>
 
   <!-- CSS -->
   <link rel="stylesheet" href="style.css" />
 
-  <!-- Librerie -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
-  <script src="https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+  <!-- Librerie (caricate PRIMA del tuo script) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js" defer></script>
+  <script src="https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js" defer></script>
+
+  <!-- La tua app -->
+  <script src="script.js" defer></script>
 </head>
 <body>
   <header>
@@ -46,8 +49,5 @@
   <footer>
     <small>Demo prototipale — p5.js + Tesseract.js + MediaRecorder</small>
   </footer>
-
-  <!-- App -->
-  <script src="script.js"></script>
 </body>
 </html>
