@@ -41,33 +41,52 @@ fileInput.addEventListener('change', (e) => {
 analyzeBtn.addEventListener('click', runAnalysis);
 
 /* ============ ANALISI: OCR → NUMERI → GRAFICA → TESTO ============ */
-async function runAnalysis() {
-  if (!upImage) { status('Carica prima un file.'); return; }
 
+async function runAnalysis() {
+  if (!upImage) { status('Carica un file prima.'); return; }
   analyzeBtn.disabled = true;
   recordBtn.disabled  = true;
   status('Analisi in corso… (OCR)');
 
+  let text = '';
   try {
-    // OCR locale (italiano + inglese)
     const { data } = await Tesseract.recognize(upImage, 'ita+eng', { logger: () => {} });
-    const text = (data && data.text) ? data.text : '';
-
-    // parsing numeri
-    values = extractNumbers(text);
-
-    if (values.length === 0) {
-      values = [50, 17.34, 4, 6, 0]; // fallback d’esempio
-      status('Nessun numero trovato: uso valori di esempio.');
-    } else {
-      status(`Trovati ${values.length} numeri → userò i 5 più significativi.`);
-    }
+    text = (data && data.text) ? data.text : '';
   } catch (err) {
-    console.error('[runAnalysis] OCR error:', err);
-    // Fallback “resiliente”: anche se l’OCR fallisce, mostriamo la demo
-    values = [50, 17.34, 4, 6, 0];
-    status('OCR non disponibile: uso valori di esempio.');
+    console.error('[OCR] errore:', err);
+    text = '';
   }
+
+  // 1) Prova a riconoscere i CAMPI nominali dallo screenshot
+  const metrics = extractMetricsFromText(text);
+
+  // 2) Scegli i numeri per la GRAFICA (se non arrivano dai campi, fai fallback al parser generico)
+  let nums = Object.values(metrics)
+    .map(m => Number.isFinite(m?.value) ? m.value : null)
+    .filter(v => v !== null);
+  if (!nums.length) {
+    nums = extractNumbers(text);
+  }
+  if (!nums.length) {
+    nums = [50, 17.34, 4, 6, 0]; // fallback demo
+    status('OCR parziale: uso valori di esempio per la grafica.');
+  } else {
+    status(`Analisi ok: trovati ${nums.length} numeri utili.`);
+  }
+  values = pickTopFive(nums);
+  numbersEl.textContent = values.map(n => formatIT(n)).join(' • ');
+
+  // 3) NARRAZIONE a 10 righe in stile “data humanism”
+  const tenLines = generateNarrationTenLines(metrics, values);
+  narrativeEl.textContent = tenLines.join('\n');
+
+  // 4) Avvia / aggiorna la GRAFICA
+  startOrUpdateSketch(values);
+
+  recordBtn.disabled = false;
+  analyzeBtn.disabled = false;
+}
+
 
   // Post-processing comune (anche in caso di fallback)
   values = pickTopFive(values);
@@ -164,6 +183,124 @@ function buildNarrationFromValues(vals) {
   out.push(`La media è ${formatIT(avg)}, la mediana ${formatIT(med)}: due lenti per vedere lo stesso ritmo.`);
   out.push(`Quello che i dati non dicono, le forme lo mostrano: il resto lo intuiamo guardandoli muovere.`);
   return out;
+}
+
+
+function extractMetricsFromText(text) {
+  const t = (text || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,''); // gestisci accenti
+
+  // Definizioni di metrica: varianti linguistiche e regex bidirezionali (numero prima/dopo)
+  const defs = {
+    ferie: [
+      /ferie(?:\s+(?:residue|residuo|maturate|anno|totale)?)?[^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
+      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}ferie(?:\s+(?:residue|residuo|maturate|anno|totale)?)?/i
+    ],
+    festivita: [
+      /festivita(?:\s+suppresse?)?[^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
+      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}festivita(?:\s+suppresse?)?/i
+    ],
+    riposi: [
+      /riposi?\s+compensativ[io][^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
+      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}riposi?\s+compensativ[io]/i
+    ],
+    pozzetto: [
+      /(?:pozzetto|banca\s*ore|saldo\s*ore)[^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
+      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}(?:pozzetto|banca\s*ore|saldo\s*ore)/i
+    ],
+    buoni: [
+      /(?:buoni\s*pasto|ticket\s*restaurant?)[^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
+      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}(?:buoni\s*pasto|ticket\s*restaurant?)/i
+    ],
+    straord: [
+      /(?:ore\s+)?straordinari[ei](?:\s+autorizzat[ei])?[^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
+      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}(?:ore\s+)?straordinari[ei](?:\s+autorizzat[ei])?/i
+    ]
+  };
+
+  function find(defArr) {
+    for (const re of defArr) {
+      const m = t.match(re);
+      if (m && m[1]) {
+        const v = parseNumberIT(m[1]);
+        if (Number.isFinite(v)) return v;
+      }
+    }
+    return null;
+  }
+
+  const ferie     = find(defs.ferie);
+  const festivita = find(defs.festivita);
+  const riposi    = find(defs.riposi);
+  const pozzetto  = find(defs.pozzetto);
+  const buoni     = find(defs.buoni);
+  const straord   = find(defs.straord);
+
+  return {
+    ferie:     { label: 'ferie',                value: ferie     },
+    festivita: { label: 'festività soppresse',  value: festivita },
+    riposi:    { label: 'riposi compensativi',  value: riposi    },
+    pozzetto:  { label: 'pozzetto',             value: pozzetto  },
+    buoni:     { label: 'buoni pasto',          value: buoni     },
+    straord:   { label: 'straordinarie',        value: straord   }
+  };
+}
+
+function parseNumberIT(s) {
+  return parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
+}
+
+
+function generateNarrationTenLines(metrics, values) {
+  const f = (v) => Number.isFinite(v) ? v.toLocaleString('it-IT', { maximumFractionDigits: 2 }) : null;
+
+  const ferie     = metrics.ferie?.value;
+  const festivita = metrics.festivita?.value;
+  const riposi    = metrics.riposi?.value;
+  const pozzetto  = metrics.pozzetto?.value;
+  const buoni     = metrics.buoni?.value;
+  const straord   = metrics.straord?.value;
+
+  // Frasi “tematiche”, usate solo se il dato c’è
+  const L = [];
+
+  if (Number.isFinite(ferie)) {
+    L.push(`**${f(ferie)} giorni di ferie** non sono un residuo: sono pause rimandate per senso di responsabilità.`);
+  }
+  if (Number.isFinite(festivita)) {
+    L.push(`**${f(festivita)} festività soppresse** sono micro‑rinunce silenziose fatte quando serviva esserci.`);
+  }
+  if (Number.isFinite(riposi)) {
+    L.push(`**${f(riposi)} riposi compensativi** dicono che il ritmo non si ferma e non chiede indietro.`);
+  }
+  if (Number.isFinite(pozzetto)) {
+    L.push(`**${f(pozzetto)} ore nel “pozzetto”** sono tempo regalato oltre il dovuto, frammento dopo frammento.`);
+  }
+  if (Number.isFinite(buoni)) {
+    L.push(`**${f(buoni)} buoni pasto** indicano presenza e routine affidabile: il battito del lavoro quotidiano.`);
+  }
+  if (Number.isFinite(straord)) {
+    L.push(`**${f(straord)} ore straordinarie autorizzate** sono la punta visibile di un impegno più grande.`);
+  }
+
+  // Se alcuni campi mancano, integra con letture generali sui valori
+  const mx = Math.max(...values);
+  const mn = Math.min(...values);
+  const spread = mx - mn;
+  const contrast = (mx > 0) ? spread / (mx || 1) : 0;
+
+  L.push(contrast > 0.6
+    ? `Questi numeri non misurano la quantità: mostrano attenzione dove l’energia si è addensata.`
+    : `Questi numeri raccontano continuità: piccole differenze che fanno scorrere il lavoro.`);
+
+  L.push(`Il profilo che emerge è **affidabile, costante, generoso, tenace**.`);
+  L.push(`Non dicono **quanto** sei presente: dicono **come** lo sei.`);
+  L.push(`Per questo, qui, **la persona al centro sei tu**.`);
+
+  // Garantisci esattamente 10 righe (se troppe, taglia; se poche, riempi con righe neutre)
+  const TEN = 10;
+  if (L.length > TEN) return L.slice(0, TEN);
+  while (L.length < TEN) L.push(`Quello che i dati non dicono, le forme lo mostrano.`);
+  return L;
 }
 
 /* ============ GRAFICA — p5.js (spirale + cerchi) ============ */
