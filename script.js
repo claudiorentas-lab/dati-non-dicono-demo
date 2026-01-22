@@ -5,6 +5,9 @@
    Tutto in locale: nessun dato inviato a server
 -------------------------------------------------- */
 
+// ======== SETTINGS ========
+const SHOW_DEBUG = true;   // mostra riga "Debug (valori riconosciuti)"
+
 // ======== ELEMENTI UI ========
 const fileInput   = document.getElementById('fileInput');
 const analyzeBtn  = document.getElementById('analyzeBtn');
@@ -12,6 +15,7 @@ const recordBtn   = document.getElementById('recordBtn');
 const statusEl    = document.getElementById('status');
 const narrativeEl = document.getElementById('narrativeBox');
 const numbersEl   = document.getElementById('numbersBox');
+const metricsEl   = document.getElementById('metricsBox');
 
 // ======== STATO =========
 let upImage  = null;   // dataURL dell'immagine caricata
@@ -50,15 +54,17 @@ async function runAnalysis() {
 
   let text = '';
   try {
-    const { data } = await Tesseract.recognize(upImage, 'ita+eng', { logger: () => {} });
+    // 2× per OCR più robusto
+    const big = await upscale2x(upImage);
+    const { data } = await Tesseract.recognize(big, 'ita+eng', { logger: () => {} });
     text = (data && data.text) ? data.text : '';
   } catch (err) {
     console.error('[OCR] error:', err);
     text = '';
   }
 
-  // 1) CAMPI nominali (ferie, festività, riposi, pozzetto, buoni, straord.)
-  const metrics = extractMetricsFromText(text);
+  // 1) CAMPI nominali per scheda (Ferie, Festività, Riposi, Pozzetto, Buoni, Straord.)
+  const metrics = extractMetricsFromText_Strict(text);
 
   // 2) Numeri per la GRAFICA (fallback a parser generico se servono)
   let nums = Object.values(metrics)
@@ -67,20 +73,29 @@ async function runAnalysis() {
 
   if (!nums.length) nums = extractNumbers(text);
   if (!nums.length) {
-    nums = [50, 17.34, 4, 6, 0]; // fallback demo
+    nums = [50, 17.34, 4, 6, 0];  // fallback demo
     status('OCR parziale: uso valori di esempio per la grafica.');
   } else {
     status(`Analisi ok: trovati ${nums.length} numeri utili.`);
   }
 
+  // 3) UI: numeri + debug
   values = pickTopFive(nums);
   numbersEl.textContent = values.map(n => formatIT(n)).join(' • ');
+  if (SHOW_DEBUG) {
+    metricsEl.textContent =
+      `Ferie: ${fmtOrDash(metrics.ferie?.value)}  |  Festività: ${fmtOrDash(metrics.festivita?.value)}\n` +
+      `Riposi: ${fmtOrDash(metrics.riposi?.value)} |  Pozzetto ore: ${fmtOrDash(metrics.pozzetto?.value)}\n` +
+      `Buoni pasto: ${fmtOrDash(metrics.buoni?.value)} |  Straordinario: ${fmtOrDash(metrics.straord?.value)}`;
+  } else {
+    metricsEl.textContent = '';
+  }
 
-  // 3) NARRAZIONE a 10 righe in stile “data humanism”
-  const tenLines = generateNarrationTenLines(metrics, values);
+  // 4) NARRAZIONE (10 righe, priorità ore → giorni → riposi)
+  const tenLines = generateNarrationTenLines_Prioritized(metrics, values);
   narrativeEl.textContent = tenLines.join('\n');
 
-  // 4) Avvia / aggiorna la GRAFICA
+  // 5) Grafica
   startOrUpdateSketch(values);
 
   recordBtn.disabled = false;
@@ -90,6 +105,11 @@ async function runAnalysis() {
 /* ============ EXPORT VIDEO (10s) ============ */
 recordBtn.addEventListener('click', () => {
   if (!canvasEl) { status('Canvas non pronto.'); return; }
+
+  if (!('MediaRecorder' in window)) {
+    status('MediaRecorder non supportato da questo browser.');
+    return;
+  }
 
   const stream = canvasEl.captureStream(30); // 30 fps
   chunks = [];
@@ -123,8 +143,9 @@ function formatIT(n) {
   try { return n.toLocaleString('it-IT', { maximumFractionDigits: 2 }); }
   catch { return String(n); }
 }
+function fmtOrDash(v){ return Number.isFinite(v) ? formatIT(v) : '—'; }
 
-/* ============ OCR → PARSE NUMERI ============ */
+/* ============ OCR → PARSE NUMERI (generico) ============ */
 function extractNumbers(text) {
   // Interi e decimali, con . o , (formati IT/EN)
   const re = /(?<![A-Za-z])[-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?(?![A-Za-z])/g;
@@ -136,7 +157,6 @@ function extractNumbers(text) {
   }).filter(v => v !== null);
   return nums.filter(v => Math.abs(v) < 1e7);
 }
-
 function pickTopFive(arr) {
   if (arr.length <= 5) return arr;
   const uniq = [...new Set(arr)];
@@ -144,88 +164,105 @@ function pickTopFive(arr) {
   return uniq.slice(0, 5);
 }
 
-/* ============ EXTRACTOR CAMPI DA TESTO OCR ============ */
-function extractMetricsFromText(text) {
-  const t = (text || '').toLowerCase()
-    .normalize('NFD').replace(/\p{Diacritic}/gu,''); // togli accenti
+/* ============ EXTRACTOR “PER SCHEDA” (ancore + finestre) ============ */
+function extractMetricsFromText_Strict(text) {
+  // Normalizza e splitta in righe conservando l'ordine
+  const raw = (text || '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean);
 
-  const defs = {
-    ferie: [
-      /ferie(?:\s+(?:residue|residuo|maturate|anno|totale)?)?[^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
-      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}ferie(?:\s+(?:residue|residuo|maturate|anno|totale)?)?/i
-    ],
-    festivita: [
-      /festivita(?:\s+suppresse?)?[^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
-      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}festivita(?:\s+suppresse?)?/i
-    ],
-    riposi: [
-      /riposi?\s+compensativ[io][^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
-      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}riposi?\s+compensativ[io]/i
-    ],
-    pozzetto: [
-      /(?:pozzetto|banca\s*ore|saldo\s*ore)[^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
-      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}(?:pozzetto|banca\s*ore|saldo\s*ore)/i
-    ],
-    buoni: [
-      /(?:buoni\s*pasto|ticket\s*restaurant?)[^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
-      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}(?:buoni\s*pasto|ticket\s*restaurant?)/i
-    ],
-    straord: [
-      /(?:ore\s+)?straordinari?[^\n\r]{0,20}autorizzat[ei]?[^\d-+]{0,20}([-+]?\d+(?:[.,]\d+)?)/i,
-      /([-+]?\d+(?:[.,]\d+)?)[^\d-+]{0,20}(?:ore\s+)?straordinari?[^\n\r]{0,20}autorizzat[ei]?/i
-    ]
+  // helper
+  const norm = s => s
+    .toLowerCase()
+    .normalize('NFD').replace(/\p{Diacritic}/gu,''); // rimuovi accenti
+
+  const lines = raw.map((s,i) => ({ i, s, n: norm(s) }));
+
+  // Ancore delle schede
+  const anchors = {
+    ferie:      [/^ferie\b/],
+    festivita:  [/^festivita\b.*soppresse\b/, /^festivita\b/],
+    riposi:     [/^riposi\b.*compensativ/],
+    pozzetto:   [/^pozzetto\b.*ore\b/, /^banca\b.*ore\b/, /^saldo\b.*ore\b/],
+    buoni:      [/^buoni\b.*pasto\b/, /^ticket\b.*rest/],
+    straord:    [/^ore\b.*straordinario\b.*autorizzate\b/, /^straordinari[oi]\b.*autorizz/]
   };
 
-  function parseNumberIT(s) {
-    return parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
-  }
+  // righe da ignorare e preferenze
+  const ignoreHints  = [/^programmati?$/i, /da programmare/i];
+  const residuoHints = [/^residuo\b.*(giorni|ore)/i, /\bresiduo\b.*(fine mese|autorizzate)?/i];
 
-  function find(defArr) {
-    for (const re of defArr) {
-      const m = t.match(re);
-      if (m && m[1]) {
-        const v = parseNumberIT(m[1]);
-        if (Number.isFinite(v)) return v;
+  // estrai numero
+  const numberRe = /([-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+)/;
+
+  const parseNumberIT = s => parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
+
+  const pickValueInWindow = (startIdx) => {
+    // finestra di 6 righe dopo l’ancora
+    const WIN = 6;
+    const window = lines.slice(startIdx, Math.min(startIdx + WIN, lines.length));
+
+    // 1) priorità alle righe “Residuo …”
+    for (const ln of window) {
+      if (residuoHints.some(rx => rx.test(ln.s))) {
+        const m = ln.s.match(numberRe);
+        if (m) return { value: parseNumberIT(m[1]), unit: /ore/i.test(ln.s) ? 'ore' : (/giorni/i.test(ln.s) ? 'giorni' : null), line: ln };
       }
     }
-    return null;
-  }
-
-  const ferie     = find(defs.ferie);
-  const festivita = find(defs.festivita);
-  const riposi    = find(defs.riposi);
-  const pozzetto  = find(defs.pozzetto);
-  const buoni     = find(defs.buoni);
-  const straord   = find(defs.straord);
-
-  return {
-    ferie:     { label: 'ferie',               value: ferie     },
-    festivita: { label: 'festività soppresse', value: festivita },
-    riposi:    { label: 'riposi compensativi', value: riposi    },
-    pozzetto:  { label: 'pozzetto',            value: pozzetto  },
-    buoni:     { label: 'buoni pasto',         value: buoni     },
-    straord:   { label: 'straordinarie',       value: straord   }
+    // 2) altrimenti prendi il numero maggiore non-zero, ignorando “Programmati/Da programmare”
+    let best = null;
+    for (const ln of window) {
+      if (ignoreHints.some(rx => rx.test(ln.s))) continue;
+      const m = ln.s.match(numberRe);
+      if (!m) continue;
+      const v = parseNumberIT(m[1]);
+      if (!Number.isFinite(v)) continue;
+      if (best === null || v > best.value) best = { value: v, unit: /ore/i.test(ln.s) ? 'ore' : (/giorni/i.test(ln.s) ? 'giorni' : null), line: ln };
+    }
+    return best;
   };
+
+  const out = {};
+  for (const key of Object.keys(anchors)) {
+    let idx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (anchors[key].some(rx => rx.test(lines[i].n))) { idx = i; break; }
+    }
+    if (idx >= 0) {
+      const picked = pickValueInWindow(idx);
+      if (picked && Number.isFinite(picked.value)) {
+        out[key] = { label: key, value: picked.value, unit: picked.unit };
+      } else {
+        out[key] = { label: key, value: null, unit: null };
+      }
+    } else {
+      out[key] = { label: key, value: null, unit: null };
+    }
+  }
+  return out;
 }
 
-/* ============ NARRAZIONE 10 RIGHE “DATA HUMANISM” ============ */
-function generateNarrationTenLines(metrics, values) {
-  const f = (v) => Number.isFinite(v) ? v.toLocaleString('it-IT', { maximumFractionDigits: 2 }) : null;
+/* ============ NARRAZIONE 10 RIGHE (priorità ore → giorni → riposi) ============ */
+function generateNarrationTenLines_Prioritized(metrics, values) {
+  const f = v => Number.isFinite(v) ? v.toLocaleString('it-IT', { maximumFractionDigits: 2 }) : null;
+  const pick = k => Number.isFinite(metrics[k]?.value) ? metrics[k].value : null;
 
-  const ferie     = metrics.ferie?.value;
-  const festivita = metrics.festivita?.value;
-  const riposi    = metrics.riposi?.value;
-  const pozzetto  = metrics.pozzetto?.value;
-  const buoni     = metrics.buoni?.value;
-  const straord   = metrics.straord?.value;
+  const pozzetto  = pick('pozzetto');
+  const straord   = pick('straord');
+  const ferie     = pick('ferie');
+  const festivita = pick('festivita');
+  const riposi    = pick('riposi');
+  const buoni     = pick('buoni');
 
   const L = [];
-  if (Number.isFinite(ferie))     L.push(`${f(ferie)} giorni di ferie non sono un residuo: sono pause rimandate per responsabilità.`);
-  if (Number.isFinite(festivita)) L.push(`${f(festivita)} festività soppresse sono micro‑rinunce silenziose fatte quando serviva esserci.`);
-  if (Number.isFinite(riposi))    L.push(`${f(riposi)} riposi compensativi dicono che il ritmo non si ferma e non chiede indietro.`);
-  if (Number.isFinite(pozzetto))  L.push(`${f(pozzetto)} ore nel “pozzetto” sono tempo regalato oltre il dovuto, frammento dopo frammento.`);
-  if (Number.isFinite(buoni))     L.push(`${f(buoni)} buoni pasto indicano presenza e routine affidabile: il battito del lavoro quotidiano.`);
-  if (Number.isFinite(straord))   L.push(`${f(straord)} ore straordinarie autorizzate sono la punta visibile di un impegno più grande.`);
+  if (pozzetto !== null)  L.push(`${f(pozzetto)} ore nel “pozzetto” sono tempo regalato oltre il dovuto, frammento dopo frammento.`);
+  if (straord  !== null)  L.push(`${f(straord)} ore straordinarie autorizzate sono la punta visibile di un impegno più grande.`);
+  if (ferie    !== null)  L.push(`${f(ferie)} giorni di ferie non sono un residuo: sono pause rimandate per responsabilità.`);
+  if (festivita!== null)  L.push(`${f(festivita)} festività soppresse sono micro‑rinunce silenziose fatte quando serviva esserci.`);
+  if (riposi   !== null)  L.push(`${f(riposi)} riposi compensativi dicono che il ritmo non si ferma e non chiede indietro.`);
+  if (buoni    !== null)  L.push(`${f(buoni)} buoni pasto indicano presenza e routine affidabile: il battito del lavoro quotidiano.`);
 
   const mx = Math.max(...values);
   const mn = Math.min(...values);
@@ -331,3 +368,22 @@ function startOrUpdateSketch(vals) {
     }
   });
 }
+
+/* ============ Upscale 2× (migliora OCR su cifre e virgole) ============ */
+async function upscale2x(dataURL) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.width * 2;
+      c.height = img.height * 2;
+      const ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/png'));
+    };
+    img.src = dataURL;
+  });
+}
+``
