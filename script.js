@@ -176,6 +176,10 @@ function extractMetricsFromText(text) {
     ]
   };
 
+  function parseNumberIT(s) {
+    return parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
+  }
+
   function find(defArr) {
     for (const re of defArr) {
       const m = t.match(re);
@@ -202,10 +206,6 @@ function extractMetricsFromText(text) {
     buoni:     { label: 'buoni pasto',         value: buoni     },
     straord:   { label: 'straordinarie',       value: straord   }
   };
-}
-
-function parseNumberIT(s) {
-  return parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
 }
 
 /* ============ NARRAZIONE 10 RIGHE “DATA HUMANISM” ============ */
@@ -267,3 +267,67 @@ function startOrUpdateSketch(vals) {
         p.color(200, 80, 95), // azzurro
         p.color(25, 90, 96),  // corallo
         p.color(135, 70, 95), // menta
+        p.color(50, 85, 95),  // giallo
+        p.color(285, 60, 95)  // viola
+      ];
+    };
+
+    p.draw = function () {
+      p.background(BG[0], BG[1], BG[2], 96);
+      p.translate(p.width / 2, p.height / 2);
+
+      const pitchBase = vals.length > 1 ? Math.abs(vals[1]) : median(vals);
+      const vmax = Math.max(...vals);
+      const pitch = p.map(pitchBase || 0.0001, 0, vmax || 1, 5, 22);
+      const turns = 4;
+      const maxA = p.TWO_PI * turns;
+
+      // Spirale di cerchi
+      p.push();
+      p.rotate(t * 0.15);
+      const step = 0.08;
+      for (let a = 0; a <= maxA; a += step) {
+        const r  = a * pitch + 10 * Math.sin(a * 2 + t * 0.7);
+        const x  = r * Math.cos(a + t * 0.2);
+        const y  = r * Math.sin(a + t * 0.2);
+        const sz = 6 + 3 * Math.sin(a * 3 + t * 1.2);
+        const h  = p.map(a, 0, maxA, 190, 30); // blu → corallo
+        p.fill(h, 70, 96, 85);
+        p.circle(x, y, sz);
+      }
+      p.pop();
+
+      // Cerchi dei dati
+      const Rcorona = Math.min(p.width, p.height) * 0.34;
+      const vmin = Math.min(...vals);
+      for (let i = 0; i < vals.length; i++) {
+        const v   = vals[i];
+        const rad = p.map(v, vmin, vmax, MIN_R, MAX_R);
+        const ang = (p.TWO_PI / vals.length) * i + t * 0.12;
+        const ox  = (Rcorona + 14 * Math.sin(t + i)) * Math.cos(ang);
+        const oy  = (Rcorona + 14 * Math.sin(t * 0.9 + i)) * Math.sin(ang);
+
+        const col = palette[i % palette.length];
+        p.fill(p.hue(col), p.saturation(col), p.brightness(col), 92);
+        p.circle(ox, oy, rad * (1 + 0.06 * Math.sin(t * 0.8 + i)));
+
+        p.fill(p.hue(col), p.saturation(col), p.brightness(col), 22);
+        p.circle(ox, oy, rad * 1.35);
+      }
+
+      t += 0.02;
+    };
+
+    p.windowResized = function () {
+      if (!document.getElementById('canvasHost')) return;
+      p.resizeCanvas(p.windowWidth * 0.58, p.windowHeight * 0.68);
+    };
+
+    function median(arr) {
+      if (!arr || !arr.length) return 0;
+      const a = [...arr].sort((x, y) => x - y);
+      const m = Math.floor(a.length / 2);
+      return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+    }
+  });
+}
