@@ -6,7 +6,10 @@
 -------------------------------------------------- */
 
 // ======== SETTINGS ========
-const SHOW_DEBUG = true;   // mostra riga "Debug (valori riconosciuti)"
+const SHOW_DEBUG = true;                      // mostra riga "Debug (valori riconosciuti)"
+const TESS_LANG_PATH = 'https://tessdata.projectnaptha.com/5'; // path lingue
+const TESS_LANGS_PREF = 'ita+eng';           // prima scelta
+const TESS_LANGS_FALLBACK = 'eng';           // fallback
 
 // ======== ELEMENTI UI ========
 const fileInput   = document.getElementById('fileInput');
@@ -24,6 +27,39 @@ let p5Sketch = null;   // istanza p5
 let canvasEl = null;   // canvas p5 per MediaRecorder
 let recorder = null;
 let chunks   = [];
+
+// ======== WORKER OCR (riuso tra analisi) ========
+let ocr = { worker: null, ready: false, langs: null };
+
+async function getWorker() {
+  // già pronto
+  if (ocr.worker && ocr.ready) return ocr.worker;
+
+  // crea il worker
+  const w = await Tesseract.createWorker({ logger: () => {}, langPath: TESS_LANG_PATH });
+  await w.load();
+
+  // prova ita+eng, altrimenti eng
+  try {
+    await w.loadLanguage(TESS_LANGS_PREF);
+    await w.initialize(TESS_LANGS_PREF);
+    ocr.langs = TESS_LANGS_PREF;
+  } catch (err) {
+    console.warn('[OCR] ita+eng non disponibile, fallback a eng:', err);
+    await w.loadLanguage(TESS_LANGS_FALLBACK);
+    await w.initialize(TESS_LANGS_FALLBACK);
+    ocr.langs = TESS_LANGS_FALLBACK;
+  }
+
+  ocr.worker = w;
+  ocr.ready = true;
+  return w;
+}
+
+// chiudi il worker quando la pagina si chiude
+window.addEventListener('beforeunload', async () => {
+  try { if (ocr.worker) await ocr.worker.terminate(); } catch {}
+});
 
 /* ============ AVVIO AUTOMATICO DOPO UPLOAD ============ */
 fileInput.addEventListener('change', (e) => {
@@ -52,50 +88,56 @@ async function runAnalysis() {
   recordBtn.disabled  = true;
   status('Analisi in corso… (OCR)');
 
+  // 1) Upscale per OCR più robusto
   let text = '';
   try {
-    // 2× per OCR più robusto
     const big = await upscale2x(upImage);
-    const { data } = await Tesseract.recognize(big, 'ita+eng', { logger: () => {} });
+    const worker = await getWorker();
+    const { data } = await worker.recognize(big);
     text = (data && data.text) ? data.text : '';
   } catch (err) {
     console.error('[OCR] error:', err);
-    text = '';
+    // fallback di emergenza
+    try {
+      const big = await upscale2x(upImage);
+      const { data } = await Tesseract.recognize(big, TESS_LANGS_FALLBACK, { langPath: TESS_LANG_PATH, logger: () => {} });
+      text = (data && data.text) ? data.text : '';
+    } catch (e2) {
+      console.error('[OCR fallback] error:', e2);
+      text = '';
+    }
   }
 
-  // 1) CAMPI nominali per scheda (Ferie, Festività, Riposi, Pozzetto, Buoni, Straord.)
+  // 2) CAMPI per scheda
   const metrics = extractMetricsFromText_Strict(text);
 
-  // 2) Numeri per la GRAFICA (fallback a parser generico se servono)
+  // 3) Numeri per grafica
   let nums = Object.values(metrics)
     .map(m => Number.isFinite(m?.value) ? m.value : null)
     .filter(v => v !== null);
-
   if (!nums.length) nums = extractNumbers(text);
-  if (!nums.length) {
-    nums = [50, 17.34, 4, 6, 0];  // fallback demo
-    status('OCR parziale: uso valori di esempio per la grafica.');
-  } else {
-    status(`Analisi ok: trovati ${nums.length} numeri utili.`);
-  }
+  if (!nums.length) { nums = [50, 17.34, 4, 6, 0]; status('OCR parziale: uso valori di esempio per la grafica.'); }
+  else { status(`Analisi ok: trovati ${nums.length} numeri utili.`); }
 
-  // 3) UI: numeri + debug
+  // 4) UI: numeri e debug
   values = pickTopFive(nums);
   numbersEl.textContent = values.map(n => formatIT(n)).join(' • ');
+
   if (SHOW_DEBUG) {
     metricsEl.textContent =
       `Ferie: ${fmtOrDash(metrics.ferie?.value)}  |  Festività: ${fmtOrDash(metrics.festivita?.value)}\n` +
       `Riposi: ${fmtOrDash(metrics.riposi?.value)} |  Pozzetto ore: ${fmtOrDash(metrics.pozzetto?.value)}\n` +
-      `Buoni pasto: ${fmtOrDash(metrics.buoni?.value)} |  Straordinario: ${fmtOrDash(metrics.straord?.value)}`;
+      `Buoni pasto: ${fmtOrDash(metrics.buoni?.value)} |  Straordinario: ${fmtOrDash(metrics.straord?.value)}` +
+      (ocr.langs ? `\n[OCR con: ${ocr.langs}]` : '');
   } else {
     metricsEl.textContent = '';
   }
 
-  // 4) NARRAZIONE (10 righe, priorità ore → giorni → riposi)
+  // 5) Narrazione (10 righe)
   const tenLines = generateNarrationTenLines_Prioritized(metrics, values);
   narrativeEl.textContent = tenLines.join('\n');
 
-  // 5) Grafica
+  // 6) Grafica
   startOrUpdateSketch(values);
 
   recordBtn.disabled = false;
@@ -105,29 +147,23 @@ async function runAnalysis() {
 /* ============ EXPORT VIDEO (10s) ============ */
 recordBtn.addEventListener('click', () => {
   if (!canvasEl) { status('Canvas non pronto.'); return; }
+  if (!('MediaRecorder' in window)) { status('MediaRecorder non supportato.'); return; }
 
-  if (!('MediaRecorder' in window)) {
-    status('MediaRecorder non supportato da questo browser.');
-    return;
-  }
-
-  const stream = canvasEl.captureStream(30); // 30 fps
+  const stream = canvasEl.captureStream(30);
   chunks = [];
   const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
     ? 'video/webm;codecs=vp9'
     : 'video/webm';
 
-  recorder = new MediaRecorder(stream, { mimeType: mime });
-  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const recorder = new MediaRecorder(stream, { mimeType: mime });
+  recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
   recorder.onstop = () => {
     const blob = new Blob(chunks, { type: 'video/webm' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = 'quello-che-i-dati-non-dicono.webm';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
     status('Video generato (WebM).');
   };
@@ -139,48 +175,38 @@ recordBtn.addEventListener('click', () => {
 
 /* ============ UTILITIES UI ============ */
 function status(msg) { statusEl.textContent = msg; }
-function formatIT(n) {
-  try { return n.toLocaleString('it-IT', { maximumFractionDigits: 2 }); }
-  catch { return String(n); }
-}
+function formatIT(n){ try { return n.toLocaleString('it-IT',{maximumFractionDigits:2}); } catch { return String(n); } }
 function fmtOrDash(v){ return Number.isFinite(v) ? formatIT(v) : '—'; }
 
 /* ============ OCR → PARSE NUMERI (generico) ============ */
 function extractNumbers(text) {
-  // Interi e decimali, con . o , (formati IT/EN)
   const re = /(?<![A-Za-z])[-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?(?![A-Za-z])/g;
   const matches = (text || '').match(re) || [];
   const nums = matches.map(s => {
-    const norm = s.replace(/\./g, '').replace(',', '.'); // IT → punto decimale
+    const norm = s.replace(/\./g, '').replace(',', '.');
     const val  = parseFloat(norm);
     return Number.isFinite(val) ? val : null;
   }).filter(v => v !== null);
   return nums.filter(v => Math.abs(v) < 1e7);
 }
-function pickTopFive(arr) {
+function pickTopFive(arr){
   if (arr.length <= 5) return arr;
   const uniq = [...new Set(arr)];
-  uniq.sort((a, b) => Math.abs(b) - Math.abs(a));
+  uniq.sort((a,b) => Math.abs(b) - Math.abs(a));
   return uniq.slice(0, 5);
 }
 
 /* ============ EXTRACTOR “PER SCHEDA” (ancore + finestre) ============ */
 function extractMetricsFromText_Strict(text) {
-  // Normalizza e splitta in righe conservando l'ordine
   const raw = (text || '')
     .replace(/\r/g, '')
     .split('\n')
     .map(s => s.trim())
     .filter(Boolean);
 
-  // helper
-  const norm = s => s
-    .toLowerCase()
-    .normalize('NFD').replace(/\p{Diacritic}/gu,''); // rimuovi accenti
-
+  const norm = s => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'');
   const lines = raw.map((s,i) => ({ i, s, n: norm(s) }));
 
-  // Ancore delle schede
   const anchors = {
     ferie:      [/^ferie\b/],
     festivita:  [/^festivita\b.*soppresse\b/, /^festivita\b/],
@@ -190,36 +216,29 @@ function extractMetricsFromText_Strict(text) {
     straord:    [/^ore\b.*straordinario\b.*autorizzate\b/, /^straordinari[oi]\b.*autorizz/]
   };
 
-  // righe da ignorare e preferenze
   const ignoreHints  = [/^programmati?$/i, /da programmare/i];
   const residuoHints = [/^residuo\b.*(giorni|ore)/i, /\bresiduo\b.*(fine mese|autorizzate)?/i];
-
-  // estrai numero
-  const numberRe = /([-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+)/;
-
+  const numberRe     = /([-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+)/;
   const parseNumberIT = s => parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
 
   const pickValueInWindow = (startIdx) => {
-    // finestra di 6 righe dopo l’ancora
     const WIN = 6;
     const window = lines.slice(startIdx, Math.min(startIdx + WIN, lines.length));
 
-    // 1) priorità alle righe “Residuo …”
-    for (const ln of window) {
+    for (const ln of window) { // priorità “Residuo …”
       if (residuoHints.some(rx => rx.test(ln.s))) {
         const m = ln.s.match(numberRe);
-        if (m) return { value: parseNumberIT(m[1]), unit: /ore/i.test(ln.s) ? 'ore' : (/giorni/i.test(ln.s) ? 'giorni' : null), line: ln };
+        if (m) return { value: parseNumberIT(m[1]), unit: /ore/i.test(ln.s) ? 'ore' : (/giorni/i.test(ln.s) ? 'giorni' : null) };
       }
     }
-    // 2) altrimenti prendi il numero maggiore non-zero, ignorando “Programmati/Da programmare”
-    let best = null;
+    let best = null; // altrimenti numero maggiore non-zero (escludi “Programmati/Da programmare”)
     for (const ln of window) {
       if (ignoreHints.some(rx => rx.test(ln.s))) continue;
       const m = ln.s.match(numberRe);
       if (!m) continue;
       const v = parseNumberIT(m[1]);
       if (!Number.isFinite(v)) continue;
-      if (best === null || v > best.value) best = { value: v, unit: /ore/i.test(ln.s) ? 'ore' : (/giorni/i.test(ln.s) ? 'giorni' : null), line: ln };
+      if (best === null || v > best.value) best = { value: v, unit: /ore/i.test(ln.s) ? 'ore' : (/giorni/i.test(ln.s) ? 'giorni' : null) };
     }
     return best;
   };
@@ -232,11 +251,9 @@ function extractMetricsFromText_Strict(text) {
     }
     if (idx >= 0) {
       const picked = pickValueInWindow(idx);
-      if (picked && Number.isFinite(picked.value)) {
-        out[key] = { label: key, value: picked.value, unit: picked.unit };
-      } else {
-        out[key] = { label: key, value: null, unit: null };
-      }
+      out[key] = picked && Number.isFinite(picked.value)
+        ? { label: key, value: picked.value, unit: picked.unit }
+        : { label: key, value: null, unit: null };
     } else {
       out[key] = { label: key, value: null, unit: null };
     }
@@ -301,11 +318,11 @@ function startOrUpdateSketch(vals) {
       p.colorMode(p.HSB, 360, 100, 100, 100);
       p.noStroke();
       palette = [
-        p.color(200, 80, 95), // azzurro
-        p.color(25, 90, 96),  // corallo
-        p.color(135, 70, 95), // menta
-        p.color(50, 85, 95),  // giallo
-        p.color(285, 60, 95)  // viola
+        p.color(200, 80, 95),
+        p.color(25, 90, 96),
+        p.color(135, 70, 95),
+        p.color(50, 85, 95),
+        p.color(285, 60, 95)
       ];
     };
 
@@ -319,7 +336,6 @@ function startOrUpdateSketch(vals) {
       const turns = 4;
       const maxA = p.TWO_PI * turns;
 
-      // Spirale di cerchi
       p.push();
       p.rotate(t * 0.15);
       const step = 0.08;
@@ -328,13 +344,12 @@ function startOrUpdateSketch(vals) {
         const x  = r * Math.cos(a + t * 0.2);
         const y  = r * Math.sin(a + t * 0.2);
         const sz = 6 + 3 * Math.sin(a * 3 + t * 1.2);
-        const h  = p.map(a, 0, maxA, 190, 30); // blu → corallo
+        const h  = p.map(a, 0, maxA, 190, 30);
         p.fill(h, 70, 96, 85);
         p.circle(x, y, sz);
       }
       p.pop();
 
-      // Cerchi dei dati
       const Rcorona = Math.min(p.width, p.height) * 0.34;
       const vmin = Math.min(...vals);
       for (let i = 0; i < vals.length; i++) {
@@ -369,7 +384,7 @@ function startOrUpdateSketch(vals) {
   });
 }
 
-/* ============ Upscale 2× (migliora OCR su cifre e virgole) ============ */
+/* ============ Upscale 2× (migliora OCR) ============ */
 async function upscale2x(dataURL) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -386,4 +401,3 @@ async function upscale2x(dataURL) {
     img.src = dataURL;
   });
 }
-``
