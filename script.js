@@ -31,7 +31,7 @@ fileInput.addEventListener('change', (e) => {
     upImage = reader.result; // dataURL
     status('File caricato. Analizzo…');
     analyzeBtn.disabled = true;   // evita doppi avvii
-    recordBtn.disabled = true;
+    recordBtn.disabled  = true;
     await runAnalysis();          // avvio automatico
   };
   reader.readAsDataURL(file);
@@ -42,13 +42,13 @@ analyzeBtn.addEventListener('click', runAnalysis);
 
 /* ============ ANALISI: OCR → NUMERI → GRAFICA → TESTO ============ */
 async function runAnalysis() {
+  if (!upImage) { status('Carica prima un file.'); return; }
+
+  analyzeBtn.disabled = true;
+  recordBtn.disabled  = true;
+  status('Analisi in corso… (OCR)');
+
   try {
-    if (!upImage) { status('Carica prima un file.'); return; }
-
-    analyzeBtn.disabled = true;
-    recordBtn.disabled  = true;
-    status('Analisi in corso… (OCR)');
-
     // OCR locale (italiano + inglese)
     const { data } = await Tesseract.recognize(upImage, 'ita+eng', { logger: () => {} });
     const text = (data && data.text) ? data.text : '';
@@ -57,30 +57,27 @@ async function runAnalysis() {
     values = extractNumbers(text);
 
     if (values.length === 0) {
-      // fallback: valori di esempio
-      values = [50, 17.34, 4, 6, 0];
+      values = [50, 17.34, 4, 6, 0]; // fallback d’esempio
       status('Nessun numero trovato: uso valori di esempio.');
     } else {
       status(`Trovati ${values.length} numeri → userò i 5 più significativi.`);
     }
-
-    values = pickTopFive(values); // i 5 più “parlanti”
-    numbersEl.textContent = values.map(n => formatIT(n)).join(' • ');
-
-    // narrazione in stile data humanism
-    const narrative = buildNarrationFromValues(values);
-    narrativeEl.textContent = narrative.join('\n\n');
-
-    // avvia/aggiorna animazione p5
-    startOrUpdateSketch(values);
-
-    recordBtn.disabled = false;
-    analyzeBtn.disabled = false;
   } catch (err) {
-    console.error('[runAnalysis] ERRORE:', err);
-    status('Errore durante l’analisi. Riprova con un altro file.');
-    analyzeBtn.disabled = false;
+    console.error('[runAnalysis] OCR error:', err);
+    // Fallback “resiliente”: anche se l’OCR fallisce, mostriamo la demo
+    values = [50, 17.34, 4, 6, 0];
+    status('OCR non disponibile: uso valori di esempio.');
   }
+
+  // Post-processing comune (anche in caso di fallback)
+  values = pickTopFive(values);
+  numbersEl.textContent = values.map(n => formatIT(n)).join(' • ');
+  const narrative = buildNarrationFromValues(values);
+  narrativeEl.textContent = narrative.join('\n\n');
+  startOrUpdateSketch(values);
+
+  recordBtn.disabled = false;
+  analyzeBtn.disabled = false;
 }
 
 /* ============ EXPORT VIDEO (10s) ============ */
@@ -127,10 +124,9 @@ function extractNumbers(text) {
   const matches = (text || '').match(re) || [];
   const nums = matches.map(s => {
     const norm = s.replace(/\./g, '').replace(',', '.'); // IT → punto decimale
-    const val = parseFloat(norm);
+    const val  = parseFloat(norm);
     return Number.isFinite(val) ? val : null;
   }).filter(v => v !== null);
-  // filtra estremi non utili
   return nums.filter(v => Math.abs(v) < 1e7);
 }
 
@@ -206,30 +202,30 @@ function startOrUpdateSketch(vals) {
       const turns = 4;
       const maxA = p.TWO_PI * turns;
 
-      // Spirale di cerchi (in movimento)
+      // Spirale
       p.push();
       p.rotate(t * 0.15);
       const step = 0.08;
       for (let a = 0; a <= maxA; a += step) {
-        const r = a * pitch + 10 * Math.sin(a * 2 + t * 0.7);
-        const x = r * Math.cos(a + t * 0.2);
-        const y = r * Math.sin(a + t * 0.2);
+        const r  = a * pitch + 10 * Math.sin(a * 2 + t * 0.7);
+        const x  = r * Math.cos(a + t * 0.2);
+        const y  = r * Math.sin(a + t * 0.2);
         const sz = 6 + 3 * Math.sin(a * 3 + t * 1.2);
-        const h = p.map(a, 0, maxA, 190, 30); // blu → corallo
+        const h  = p.map(a, 0, maxA, 190, 30); // blu → corallo
         p.fill(h, 70, 96, 85);
         p.circle(x, y, sz);
       }
       p.pop();
 
-      // Cerchi dei dati (dimensioni proporzionali)
+      // Cerchi dei dati
       const Rcorona = Math.min(p.width, p.height) * 0.34;
       const vmin = Math.min(...vals);
       for (let i = 0; i < vals.length; i++) {
-        const v = vals[i];
+        const v   = vals[i];
         const rad = p.map(v, vmin, vmax, MIN_R, MAX_R);
         const ang = (p.TWO_PI / vals.length) * i + t * 0.12;
-        const ox = (Rcorona + 14 * Math.sin(t + i)) * Math.cos(ang);
-        const oy = (Rcorona + 14 * Math.sin(t * 0.9 + i)) * Math.sin(ang);
+        const ox  = (Rcorona + 14 * Math.sin(t + i)) * Math.cos(ang);
+        const oy  = (Rcorona + 14 * Math.sin(t * 0.9 + i)) * Math.sin(ang);
 
         const col = palette[i % palette.length];
         p.fill(p.hue(col), p.saturation(col), p.brightness(col), 92);
