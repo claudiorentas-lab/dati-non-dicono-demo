@@ -57,17 +57,20 @@ let chunks = [];         // buffer video
 let canvasEl = null;     // canvas p5 reale (per captureStream)
 
 /* ============ 1) UPLOAD FILE ============ */
+
 fileInput.addEventListener('change', e => {
   const file = e.target.files?.[0];
   if(!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
-    upImage = reader.result; // dataURL
-    status('File caricato. Pronto all’analisi.');
-    analyzeBtn.disabled = false;
+  reader.onload = async () => {
+    upImage = reader.result;          // dataURL
+    status('File caricato. Analizzo…');
+    analyzeBtn.disabled = true;       // evita doppi avvii
+    await runAnalysis();              // ← AVVIO AUTOMATICO
   };
   reader.readAsDataURL(file);
 });
+
 
 /* ============ 2) ANALISI: OCR → NUMERI → GRAFICA → TESTO ============ */
 analyzeBtn.addEventListener('click', async () => {
