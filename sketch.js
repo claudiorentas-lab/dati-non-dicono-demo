@@ -1,4 +1,39 @@
 
+async function runAnalysis() {
+  if(!upImage) { status('Carica un file prima.'); return; }
+  analyzeBtn.disabled = true;
+  recordBtn.disabled = true;
+  status('Analisi in corso… (OCR)');
+
+  try {
+    const { data } = await Tesseract.recognize(upImage, 'ita+eng', { logger: () => {} });
+    const text = (data && data.text) ? data.text : '';
+    values = extractNumbers(text);
+
+    if(values.length === 0) {
+      values = [50, 17.34, 4, 6, 0];
+      status('Nessun numero trovato: uso valori di esempio.');
+    } else {
+      status(`Trovati ${values.length} numeri → userò i 5 più significativi.`);
+    }
+
+    values = pickTopFive(values);
+    numbersEl.textContent = values.map(n => formatIT(n)).join(' • ');
+
+    const narrative = buildNarrationFromValues(values);
+    narrativeEl.textContent = narrative.join('\n\n');
+
+    startOrUpdateSketch(values);
+
+    recordBtn.disabled = false;
+    analyzeBtn.disabled = false;
+  } catch(err) {
+    console.error(err);
+    status('Errore durante l’analisi. Riprova con un altro file.');
+    analyzeBtn.disabled = false;
+  }
+}
+
 /* -----------------------------------------------
    DEMO: Upload → OCR → Grafica → Narrazione → Video
    Tech: p5.js + Tesseract.js + MediaRecorder (WebM)
