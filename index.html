@@ -1,18 +1,52 @@
 
-<!doctype html>
+<!DOCTYPE html>
 <html lang="it">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Quello che i dati non dicono — Demo grafica</title>
-  <style>
-    html,body{height:100%}
-    body{margin:0;overflow:hidden;background:#0C121C} /* blu-notte */
-  </style>
-  <!-- p5.js -->
+  <title>Quello che i dati non dicono — Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- p5.js per la grafica -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
-  <!-- il tuo sketch -->
-  <script src="sketch.js"></script>
+  <!-- Tesseract.js per OCR (in locale, nessun upload) -->
+  <script src="https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 </head>
-<body></body>
+<body>
+  <header>
+    <h1>Quello che i dati non dicono — Demo</h1>
+    <p class="sub">Upload → OCR → Animazione → Narrazione → Video</p>
+  </header>
+
+  <section class="controls">
+    <label class="fileLabel">
+      <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.webp" />
+      Scegli uno screenshot (PNG/JPG)
+    </label>
+
+    <button id="analyzeBtn" disabled>Analizza & Genera</button>
+    <button id="recordBtn" disabled>Genera video (10s)</button>
+    <span id="status"></span>
+  </section>
+
+  <main class="layout">
+    <div class="left">
+      <h2>Narrazione (data humanism)</h2>
+      <div id="narrativeBox" class="narrative"></div>
+      <h3>Numeri estratti</h3>
+      <div id="numbersBox" class="numbers"></div>
+      <p class="note">Tutto avviene in locale nel browser. Nessun dato lascia questa pagina.</p>
+    </div>
+    <div class="right">
+      <!-- Il canvas p5.js viene creato via script -->
+      <div id="canvasHost"></div>
+    </div>
+  </main>
+
+  <footer>
+    <small>Demo prototipale — p5.js + Tesseract.js + MediaRecorder</small>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
 </html>
