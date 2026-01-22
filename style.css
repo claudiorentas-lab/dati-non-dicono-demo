@@ -1,7 +1,7 @@
 
 :root{
   --bg:#0C121C;           /* blu notte costante */
-  --panel:#132033;        /* blu scuro per pannelli */
+  --panel:#132033;        /* blu scuro pannelli */
   --text:#EAEFF7;         /* testo chiaro */
   --muted:#9FB0C9;        /* testo attenuato */
   --accent:#61D0FF;       /* azzurro */
@@ -47,10 +47,14 @@ button[disabled]{ opacity:0.5; cursor:not-allowed; }
   background:#0D1522; border:1px solid #1E2A3A; border-radius:12px;
   position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center;
 }
+
+h2,h3{ margin:10px 0 8px; }
 .narrative{ white-space:pre-wrap; line-height:1.45; color:var(--text); }
 .numbers{ color:var(--accent); margin-top:6px; }
+.debugTitle{ color:#8aa2bf; margin-top:14px; }
+.metrics{ color:#cfe0ff; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:13px; white-space:pre-wrap; }
+
 .note{ color:var(--muted); font-size:12px; margin-top:12px; }
-h2,h3{ margin:6px 0 8px; }
 
 footer{
   padding:8px 20px; border-top:1px solid #1E2A3A; color:var(--muted); font-size:12px;
