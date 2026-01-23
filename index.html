@@ -6,10 +6,7 @@
   <title>Quello che i dati non dicono — Demo</title>
   <link rel="stylesheet" href="style.css" />
 
-  <!-- p5.js -->
   <script src="https://cdn.jsdelivr.net/npm/p5@1.9.3/lib/p5.min.js"></script>
-
-  <!-- Tesseract.js -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 
@@ -17,7 +14,7 @@
   <main class="wrap">
     <header class="top">
       <h1>Quello che i dati non dicono — Demo</h1>
-      <p class="sub">Upload → OCR → Interpretazione → Visual → Video</p>
+      <p class="sub">Upload → OCR → conferma → visual → video</p>
     </header>
 
     <section class="panel">
@@ -27,9 +24,8 @@
           Scegli uno screenshot
         </label>
 
-        <button id="btnAnalyze" class="btn primary" disabled>Analizza & Genera</button>
+        <button id="btnAnalyze" class="btn primary" disabled>Analizza (OCR)</button>
         <button id="btnVideo" class="btn" disabled>Genera video (10s)</button>
-
         <button id="btnToggleValues" class="btn ghost" disabled>Correggi valori</button>
       </div>
 
@@ -39,19 +35,19 @@
 
       <div class="grid">
         <div class="col">
-          <h2>Narrazione (data humanism)</h2>
+          <h2>Narrazione</h2>
           <div id="narrative" class="card">
-            <p class="muted">Dopo l’analisi, qui comparirà una lettura “umana” dei dati.</p>
+            <p class="muted">In attesa di valori confermati.</p>
           </div>
 
           <div id="valuesBox" class="card hidden">
-            <h3>Numeri estratti</h3>
-            <p class="muted">Puoi correggere i valori e rigenerare il visual.</p>
+            <h3>Valori riconosciuti (da confermare)</h3>
+            <p class="muted">Correggi e poi clicca “Applica & genera”.</p>
 
             <div id="fields" class="fields"></div>
 
             <div class="row">
-              <button id="btnApply" class="btn primary">Applica e rigenera</button>
+              <button id="btnApply" class="btn primary">Applica & genera</button>
               <button id="btnHide" class="btn ghost">Nascondi</button>
             </div>
           </div>
@@ -73,11 +69,10 @@
     </section>
 
     <footer class="foot">
-      <span class="muted">Demo prototipale — p5.js + Tesseract.js + MediaRecorder</span>
+      <span class="muted">p5.js + Tesseract.js + MediaRecorder</span>
     </footer>
   </main>
 
   <script type="module" src="./main.js"></script>
-
 </body>
 </html>
