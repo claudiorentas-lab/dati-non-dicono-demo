@@ -9,9 +9,10 @@
   <!-- CSS -->
   <link rel="stylesheet" href="style.css" />
 
-  <!-- Librerie: caricate PRIMA della tua app -->
-  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
-  <script defer src="https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+  <!-- Librerie (p5.js + Tesseract.js) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+  <!-- Tesseract.js v4 dal CDN ufficiale -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
 
   <!-- La tua app -->
   <script defer src="script.js"></script>
@@ -48,6 +49,7 @@
     </div>
 
     <div class="right">
+      <!-- Il canvas p5.js viene creato via script -->
       <div id="canvasHost"></div>
     </div>
   </main>
