@@ -351,6 +351,12 @@ function mountSketch(state) {
     // modello visivo: 1 forma per dato
     const model = buildVisualModel(state.values, state.palette, state.mapping);
     const shapes = model.shapes;
+    // convert rel positions to absolute
+for (const s of shapes) {
+  s.x0 = s.x0_rel * W;
+  s.y0 = s.y0_rel * H;
+}
+
 
     // “fisica” semplice
     for (const s of shapes) {
