@@ -1,6 +1,6 @@
 
 :root{
-  --bg:#0C121C;           /* blu notte costante */
+  --bg:#0C121C;           /* blu notte costante (sfondo invariato) */
   --panel:#132033;        /* blu scuro pannelli */
   --text:#EAEFF7;         /* testo chiaro */
   --muted:#9FB0C9;        /* testo attenuato */
@@ -52,7 +52,11 @@ h2,h3{ margin:10px 0 8px; }
 .narrative{ white-space:pre-wrap; line-height:1.45; color:var(--text); }
 .numbers{ color:var(--accent); margin-top:6px; }
 .debugTitle{ color:#8aa2bf; margin-top:14px; }
-.metrics{ color:#cfe0ff; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:13px; white-space:pre-wrap; }
+.metrics{
+  color:#cfe0ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:13px; white-space:pre-wrap;
+}
 
 .note{ color:var(--muted); font-size:12px; margin-top:12px; }
 
