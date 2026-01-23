@@ -1,65 +1,110 @@
-
 :root{
-  --bg:#0C121C;           /* blu notte costante (sfondo invariato) */
-  --panel:#132033;        /* blu scuro pannelli */
-  --text:#EAEFF7;         /* testo chiaro */
-  --muted:#9FB0C9;        /* testo attenuato */
-  --accent:#61D0FF;       /* azzurro */
-  --accent2:#FFB36B;      /* corallo/giallo */
+  --bg:#0b0c10;
+  --fg:#e7e7e7;
+  --muted:#a9adb6;
+  --card:#12141a;
+  --line:#232635;
+  --accent:#ffffff;
 }
 
-*{ box-sizing:border-box; }
-html,body{ height:100%; }
+*{box-sizing:border-box}
 body{
-  margin:0; background:var(--bg); color:var(--text);
-  font-family: Segoe UI, system-ui, -apple-system, Arial, sans-serif;
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  background:var(--bg);
+  color:var(--fg);
 }
 
-header{ padding:18px 20px 8px; border-bottom:1px solid #1E2A3A; }
-h1{ margin:0 0 6px; font-size:22px; }
-.sub{ margin:0; color:var(--muted); font-size:14px; }
+.wrap{max-width:1100px;margin:0 auto;padding:20px}
+.top{margin-bottom:14px}
+h1{font-size:22px;margin:0}
+.sub{margin:6px 0 0;color:var(--muted)}
 
-.controls{
-  display:flex; gap:12px; align-items:center;
-  padding:12px 20px; border-bottom:1px solid #1E2A3A;
-}
-.fileLabel{
-  background:#1A2A42; padding:8px 12px; border-radius:8px;
-  cursor:pointer; border:1px solid #24344A;
-}
-.fileLabel input{ display:none; }
-button{
-  background:#24344A; color:var(--text); border:1px solid #2E3D53;
-  padding:8px 12px; border-radius:8px; cursor:pointer;
-}
-button[disabled]{ opacity:0.5; cursor:not-allowed; }
-#status{ color:var(--accent2); font-size:14px; }
-
-.layout{
-  display:grid; grid-template-columns:minmax(340px, 420px) 1fr;
-  gap:16px; padding:16px 20px; height:calc(100vh - 130px);
-}
-.left{
-  background:var(--panel); border:1px solid #1E2A3A; border-radius:12px;
-  padding:14px; overflow:auto;
-}
-.right{
-  background:#0D1522; border:1px solid #1E2A3A; border-radius:12px;
-  position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center;
+.panel{
+  border:1px solid var(--line);
+  background:rgba(255,255,255,0.02);
+  border-radius:14px;
+  padding:14px;
 }
 
-h2,h3{ margin:10px 0 8px; }
-.narrative{ white-space:pre-wrap; line-height:1.45; color:var(--text); }
-.numbers{ color:var(--accent); margin-top:6px; }
-.debugTitle{ color:#8aa2bf; margin-top:14px; }
-.metrics{
-  color:#cfe0ff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size:13px; white-space:pre-wrap;
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.row.thin{margin-top:10px}
+
+.btn{
+  border:1px solid var(--line);
+  background:transparent;
+  color:var(--fg);
+  padding:10px 12px;
+  border-radius:10px;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+}
+.btn input{display:none}
+.btn.primary{background:rgba(255,255,255,0.10)}
+.btn.ghost{opacity:.85}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+.status{
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  width:100%;
+  color:var(--muted);
 }
 
-.note{ color:var(--muted); font-size:12px; margin-top:12px; }
-
-footer{
-  padding:8px 20px; border-top:1px solid #1E2A3A; color:var(--muted); font-size:12px;
+.grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:14px;
+  margin-top:14px;
 }
+@media (max-width: 900px){
+  .grid{grid-template-columns:1fr}
+}
+
+.card{
+  border:1px solid var(--line);
+  background:var(--card);
+  border-radius:14px;
+  padding:12px;
+  margin-top:10px;
+}
+
+.hidden{display:none}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+
+.fields{
+  display:grid;
+  grid-template-columns: 1fr 140px;
+  gap:10px 12px;
+  margin:12px 0;
+}
+.fields label{color:var(--muted);align-self:center}
+.fields input{
+  width:100%;
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid var(--line);
+  background:#0d0f14;
+  color:var(--fg);
+}
+
+.debug{
+  white-space:pre-wrap;
+  word-break:break-word;
+  margin:10px 0 0;
+  color:var(--muted);
+}
+
+.canvasMount{
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:#07080b;
+  overflow:hidden;
+  min-height:420px;
+}
+
+.foot{margin-top:14px}
