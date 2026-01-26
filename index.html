@@ -1,14 +1,15 @@
+
 <!doctype html>
 <html lang="it">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Quello che i dati non dicono — Demo</title>
+
   <link rel="stylesheet" href="style.css" />
 
-  <!-- Librerie -->
+  <!-- p5.js -->
   <script src="https://cdn.jsdelivr.net/npm/p5@1.9.3/lib/p5.min.js"></script>
-  
 </head>
 
 <body>
@@ -26,7 +27,6 @@
         </label>
 
         <button id="btnAnalyze" class="btn primary" disabled>Analizza (OCR)</button>
-        <button id="btnVideo" class="btn" disabled>Genera video (10s)</button>
         <button id="btnToggleValues" class="btn ghost" disabled>Correggi valori</button>
       </div>
 
@@ -43,12 +43,10 @@
 
           <div id="valuesBox" class="card hidden">
             <h3>Valori riconosciuti (da confermare)</h3>
-            <p class="muted">Correggi e poi clicca “Applica & genera”.</p>
-
             <div id="fields" class="fields"></div>
 
             <div class="row">
-              <button id="btnApply" class="btn primary">Applica & genera</button>
+              <button id="btnApply" class="btn primary">Applica</button>
               <button id="btnHide" class="btn ghost">Nascondi</button>
             </div>
           </div>
@@ -63,18 +61,14 @@
           <h2>Visual</h2>
           <div id="canvasMount" class="canvasMount"></div>
           <p class="muted small">
-            Tutto avviene in locale nel browser. Nessun dato lascia questa pagina.
+            Tutto avviene in locale nel browser.
           </p>
         </div>
       </div>
     </section>
-
-    <footer class="foot">
-      <span class="muted">p5.js + Tesseract.js + MediaRecorder</span>
-    </footer>
   </main>
 
-  <!-- Il tuo codice (UNA SOLA VOLTA) -->
-  <script type="module" src="./main.js?v=debug2"></script>
+  <!-- ✅ MAIN JS (ES MODULE) -->
+  <script type="module" src="./main.js"></script>
 </body>
 </html>
