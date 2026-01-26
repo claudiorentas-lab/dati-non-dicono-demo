@@ -1,3 +1,4 @@
+import * as Tesseract from "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js";
 import { defaultSchema } from "./humanism.js";
 
 // ---- DOM
@@ -14,7 +15,6 @@ const fieldsEl = document.getElementById("fields");
 const btnApply = document.getElementById("btnApply");
 const btnHide = document.getElementById("btnHide");
 
-// ---- State
 let imgFile = null;
 
 // ---- Helpers
@@ -103,11 +103,10 @@ function extractFromAccumuloScreen(text){
   return out;
 }
 
-// ---- OCR (worker) - SOLO ENG per evitare ita.special-words
+// ---- OCR (worker) - SOLO ENG
 async function runOCR(imageUrl) {
   const worker = await Tesseract.createWorker({
     logger: (m) => {
-      // utile per debug
       if (m.status === "recognizing text") {
         setStatus(`OCR… ${Math.round((m.progress || 0) * 100)}%`);
       }
@@ -117,7 +116,6 @@ async function runOCR(imageUrl) {
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
 
-  // piccoli aiuti per numeri/colonne: whitelist
   await worker.setParameters({
     tessedit_char_whitelist: "0123456789,.-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzàèéìòùÀÈÉÌÒÙ ",
   });
@@ -170,7 +168,6 @@ btnAnalyze.addEventListener("click", async () => {
     URL.revokeObjectURL(url);
 
     debugEl.textContent = text || "(vuoto)";
-
     const extracted = extractFromAccumuloScreen(text);
     renderFields(extracted);
 
