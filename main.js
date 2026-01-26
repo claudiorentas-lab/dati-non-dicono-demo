@@ -1,6 +1,6 @@
 
 // ✅ IMPORT TESSERACT (ESM UFFICIALE)
-import { createWorker } from "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js";
+import Tesseract from "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js";
 
 // ---- DOM
 const fileInput = document.getElementById("fileInput");
@@ -24,8 +24,9 @@ function setStatus(msg) {
 }
 
 // ---- OCR (ROBUSTO PER GITHUB PAGES)
+
 async function runOCR(imageFile) {
-  const worker = await createWorker({
+  const worker = await Tesseract.createWorker({
     workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js",
     corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.1/tesseract-core-simd.wasm",
     logger: m => {
@@ -43,6 +44,7 @@ async function runOCR(imageFile) {
 
   return data.text || "";
 }
+
 
 // ---- UI INIT
 setStatus("Carica uno screenshot e clicca Analizza (OCR).");
