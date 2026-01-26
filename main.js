@@ -1,6 +1,6 @@
-import { defaultSchema, interpretHumanism, buildVisualModel } from "./humanism.js";
+import { defaultSchema, interpretHumanismForKey } from "./humanism.js";
 
-// ---- DOM
+// ---- DOM (devono esistere in index.html)
 const fileInput = document.getElementById("fileInput");
 const btnAnalyze = document.getElementById("btnAnalyze");
 const btnVideo = document.getElementById("btnVideo");
@@ -19,15 +19,11 @@ const canvasMount = document.getElementById("canvasMount");
 
 // ---- State
 let imgFile = null;
-let ocrText = "";
-let extracted = { ...defaultSchema.values }; // proposto
-let confirmed = { ...defaultSchema.values }; // confermato
-let current = null;
+let confirmed = { ...defaultSchema.values };
 let p5Instance = null;
 
 // ---- Helpers
-function setStatus(msg) { statusEl.textContent = msg; }
-function enable(on) { btnAnalyze.disabled = !on; }
+function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
 function qsAll(sel, root = document) { return [...root.querySelectorAll(sel)]; }
 
 function escapeHtml(s) {
@@ -37,150 +33,102 @@ function escapeHtml(s) {
     .replaceAll(">", "&gt;");
 }
 
-// ---- Init
-setStatus("Carica uno screenshot.");
-enable(false);
-btnVideo.disabled = true;
-btnToggleValues.disabled = true;
-valuesBox.classList.add("hidden");
+// ---- Init UI (questa iterazione non fa OCR: il bottone resta, ma non è prioritario)
+setStatus("Carica uno screenshot (facoltativo) e inserisci/correggi i valori. Poi “Applica & genera”.");
+if (btnAnalyze) btnAnalyze.disabled = true; // per ora: non usiamo OCR
+if (btnVideo) btnVideo.disabled = true;
+if (btnToggleValues) btnToggleValues.disabled = false;
+
+if (valuesBox) valuesBox.classList.add("hidden");
+if (debugEl) debugEl.textContent = "";
+
+renderFields(confirmed, defaultSchema);
 
 // ---- Events
-fileInput.addEventListener("change", () => {
-  imgFile = fileInput.files?.[0] || null;
-  if (!imgFile) {
-    enable(false);
+if (fileInput) {
+  fileInput.addEventListener("change", () => {
+    imgFile = fileInput.files?.[0] || null;
+    if (imgFile) setStatus(`Screenshot caricato: ${imgFile.name}. Ora conferma i valori.`);
+  });
+}
+
+if (btnToggleValues) {
+  btnToggleValues.addEventListener("click", () => {
+    if (!valuesBox) return;
+    valuesBox.classList.toggle("hidden");
+  });
+}
+
+if (btnHide) {
+  btnHide.addEventListener("click", () => {
+    if (!valuesBox) return;
+    valuesBox.classList.add("hidden");
+  });
+}
+
+if (btnApply) {
+  btnApply.addEventListener("click", () => {
+    confirmed = readFieldsIntoValues();
+    if (valuesBox) valuesBox.classList.add("hidden");
+
+    // testo narrativo generale (breve) + visual
+    const top = topEntry(confirmed);
+    const general = `Ritratto dati: il valore dominante è ${top.label} (${formatNum(top.value)}). Passa il mouse sulle meduse per leggere il significato “humanism” di ogni dato.`;
+    if (narrativeEl) narrativeEl.innerHTML = `<p>${escapeHtml(general)}</p>`;
+
+    mountSketch({ values: confirmed });
+    if (btnVideo) btnVideo.disabled = false;
+    setStatus("Visual generato. Hover sulle meduse per la spiegazione.");
+  });
+}
+
+// Video export (opzionale)
+if (btnVideo) {
+  btnVideo.addEventListener("click", () => {
+    if (!p5Instance) return;
+    const canvas = canvasMount?.querySelector("canvas");
+    if (!canvas) return;
+
+    setStatus("Registrazione video 10s…");
     btnVideo.disabled = true;
-    btnToggleValues.disabled = true;
-    setStatus("Carica uno screenshot.");
-    return;
-  }
-  enable(true);
-  btnVideo.disabled = true;
-  btnToggleValues.disabled = true;
-  setStatus(`File pronto: ${imgFile.name}`);
-});
 
-btnToggleValues.addEventListener("click", () => {
-  valuesBox.classList.toggle("hidden");
-});
+    try {
+      const stream = canvas.captureStream(30);
+      const chunks = [];
 
-btnHide.addEventListener("click", () => {
-  valuesBox.classList.add("hidden");
-});
+      const preferred = [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm"
+      ];
+      const mimeType = preferred.find(t => MediaRecorder.isTypeSupported(t)) || "";
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
 
-// genera SOLO dopo conferma
-btnApply.addEventListener("click", () => {
-  confirmed = readFieldsIntoValues();
-  valuesBox.classList.add("hidden");
-  regenerateFromConfirmed();
-  btnVideo.disabled = false;
-  setStatus("Visual generato dai valori confermati.");
-});
+      rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
+      rec.onstop = () => {
+        const blob = new Blob(chunks, { type: rec.mimeType || "video/webm" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "meduse_datahumanism.webm";
+        a.click();
+        URL.revokeObjectURL(a.href);
+        setStatus("Video pronto (download avviato).");
+        btnVideo.disabled = false;
+      };
 
-btnAnalyze.addEventListener("click", async () => {
-  if (!imgFile) return;
-
-  btnAnalyze.disabled = true;
-  btnVideo.disabled = true;
-  btnToggleValues.disabled = true;
-
-  narrativeEl.innerHTML = `<p class="muted">In attesa di valori confermati.</p>`;
-  debugEl.textContent = "";
-  valuesBox.classList.add("hidden");
-
-  try {
-    setStatus("Preprocessing immagine…");
-
-    const processedBlob = await preprocessImageForOCR(imgFile, { scale: 2, threshold: 165 });
-    const url = URL.createObjectURL(processedBlob);
-
-    setStatus("OCR in corso…");
-
-    const { data } = await Tesseract.recognize(url, "ita", {
-      logger: (m) => {
-        if (m.status === "recognizing text") {
-          const pct = Math.round((m.progress || 0) * 100);
-          setStatus(`OCR… ${pct}%`);
-        }
-      }
-    });
-
-    URL.revokeObjectURL(url);
-
-    ocrText = (data?.text || "").trim();
-    debugEl.textContent = ocrText || "(vuoto)";
-
-    // ✅ parsing label-aware
-    extracted = extractValuesLabelAware(ocrText, defaultSchema);
-
-    // fallback se ha preso troppo poco
-    const filled = defaultSchema.order.filter(k => Number(extracted[k] ?? 0) !== 0).length;
-    if (filled < 2) {
-      extracted = extractValuesByOrder(ocrText, defaultSchema);
-    }
-
-    renderFields(extracted, defaultSchema);
-
-    btnToggleValues.disabled = false;
-    valuesBox.classList.remove("hidden");
-    setStatus("OCR completato. Correggi i valori e clicca “Applica & genera”.");
-  } catch (err) {
-    console.error(err);
-    setStatus("Errore OCR. Prova con screenshot più nitido o ritagliato.");
-  } finally {
-    btnAnalyze.disabled = false;
-  }
-});
-
-btnVideo.addEventListener("click", () => {
-  if (!p5Instance) return;
-
-  const canvas = canvasMount.querySelector("canvas");
-  if (!canvas) {
-    setStatus("Nessun canvas trovato.");
-    return;
-  }
-
-  setStatus("Registrazione video 10s…");
-  btnVideo.disabled = true;
-
-  try {
-    const stream = canvas.captureStream(30);
-    const chunks = [];
-
-    // VP9 non sempre supportato: fallback VP8
-    const preferred = [
-      "video/webm;codecs=vp9",
-      "video/webm;codecs=vp8",
-      "video/webm"
-    ];
-    const mimeType = preferred.find(t => MediaRecorder.isTypeSupported(t)) || "";
-
-    const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-
-    rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
-    rec.onstop = () => {
-      const blob = new Blob(chunks, { type: rec.mimeType || "video/webm" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "dati-non-dicono_demo.webm";
-      a.click();
-      URL.revokeObjectURL(a.href);
-      setStatus("Video pronto (download avviato).");
+      rec.start();
+      setTimeout(() => rec.stop(), 10_000);
+    } catch (e) {
+      console.error(e);
+      setStatus("Errore registrazione video. Prova Chrome/Edge.");
       btnVideo.disabled = false;
-    };
+    }
+  });
+}
 
-    rec.start();
-    setTimeout(() => rec.stop(), 10_000);
-  } catch (e) {
-    console.error(e);
-    setStatus("Errore registrazione video. Prova Chrome/Edge.");
-    btnVideo.disabled = false;
-  }
-});
-
-// ---- UI fields
+// ---- Fields UI
 function renderFields(values, schema) {
+  if (!fieldsEl) return;
   fieldsEl.innerHTML = "";
   for (const key of schema.order) {
     const label = document.createElement("label");
@@ -188,7 +136,7 @@ function renderFields(values, schema) {
 
     const input = document.createElement("input");
     input.type = "number";
-    input.step = "0.1";
+    input.step = "0.01";
     input.value = values[key] ?? 0;
     input.dataset.key = key;
 
@@ -199,6 +147,8 @@ function renderFields(values, schema) {
 
 function readFieldsIntoValues() {
   const next = { ...defaultSchema.values };
+  if (!fieldsEl) return next;
+
   const inputs = qsAll("input[data-key]", fieldsEl);
   for (const inp of inputs) {
     const k = inp.dataset.key;
@@ -208,412 +158,341 @@ function readFieldsIntoValues() {
   return next;
 }
 
-// ---- Regenerate (humanism + visual model)
-function regenerateFromConfirmed() {
-  current = interpretHumanism(confirmed, defaultSchema);
-
-  narrativeEl.innerHTML = `
-    <p>${escapeHtml(current.text)}</p>
-    <p class="muted small">${escapeHtml(current.summaryLine)}</p>
-  `;
-
-  mountSketch(current);
+function topEntry(values) {
+  const entries = defaultSchema.order.map(k => ({
+    key: k, label: defaultSchema.labels[k], value: Number(values[k] ?? 0)
+  }));
+  entries.sort((a, b) => b.value - a.value);
+  return entries[0] || { key: "", label: "-", value: 0 };
 }
 
-// ---- OCR preprocessing (canvas)
-async function preprocessImageForOCR(file, { scale = 2, threshold = 165 } = {}) {
-  const img = await fileToImage(file);
-
-  const c = document.createElement("canvas");
-  const ctx = c.getContext("2d", { willReadFrequently: true });
-
-  c.width = Math.floor(img.width * scale);
-  c.height = Math.floor(img.height * scale);
-
-  // draw scaled
-  ctx.drawImage(img, 0, 0, c.width, c.height);
-
-  // get pixels
-  const id = ctx.getImageData(0, 0, c.width, c.height);
-  const d = id.data;
-
-  // grayscale + contrast-ish + threshold
-  for (let i = 0; i < d.length; i += 4) {
-    const r = d[i], g = d[i + 1], b = d[i + 2];
-    let y = 0.2126 * r + 0.7152 * g + 0.0722 * b; // luma
-    // boost contrast
-    y = (y - 128) * 1.25 + 128;
-    const v = y > threshold ? 255 : 0;
-    d[i] = d[i + 1] = d[i + 2] = v;
-    d[i + 3] = 255;
-  }
-
-  ctx.putImageData(id, 0, 0);
-
-  return new Promise((resolve) => c.toBlob(b => resolve(b), "image/png"));
+function formatNum(n) {
+  if (!Number.isFinite(n)) return "0";
+  const isInt = Math.abs(n - Math.round(n)) < 1e-9;
+  return isInt ? String(Math.round(n)) : n.toFixed(2).replace(".", ",");
 }
 
-function fileToImage(file) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
-    img.onerror = reject;
-    img.src = url;
-  });
-}
-
-// ---- Parsing (label-aware + fallback)
-function normalizeOCRText(text) {
-  return String(text)
-    .replace(/\u00A0/g, " ")
-    .replace(/[–—]/g, "-")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function parseNumberFromString(s) {
-  if (!s) return null;
-  let x = String(s).replace(/\s/g, "");
-  const hasComma = x.includes(",");
-  const hasDot = x.includes(".");
-  if (hasComma && hasDot) {
-    x = x.replace(/\./g, "").replace(",", ".");
-  } else {
-    x = x.replace(",", ".");
-  }
-  const n = Number(x);
-  return Number.isFinite(n) ? n : null;
-}
-
-function extractValuesLabelAware(text, schema) {
-  const clean = normalizeOCRText(text);
-  const out = { ...schema.values };
-
-  // dizionario sinonimi (aggiungi le tue varianti reali)
-  const dict = {
-    ferie_giorni: ["ferie"],
-    festivita_soppresse: ["festivita soppresse", "festività soppresse", "festivita"],
-    riposi_compensativi: ["riposi compensativi", "riposi"],
-    pozzetto_ore: ["pozzetto", "pozzetto ore", "pozzetto(ore)"],
-    buoni_pasto: ["buoni pasto", "buoni"],
-    straordinario_ore: ["straordinario", "straord", "straordinario autorizzato"]
-  };
-
-  // cerca riga per riga: "label .... numero"
-  const lines = clean.split(/[\n\r]+/).map(l => l.trim()).filter(Boolean);
-
-  for (const key of schema.order) {
-    const patterns = dict[key] || [schema.labels[key].toLowerCase()];
-    for (const line of lines) {
-      const low = line.toLowerCase();
-      const hit = patterns.some(p => low.includes(p));
-      if (!hit) continue;
-
-      // prende l’ultimo numero nella riga (di solito è il valore)
-      const m = line.match(/-?\d{1,3}(?:[.\s]\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?/g);
-      if (m && m.length) {
-        const n = parseNumberFromString(m[m.length - 1]);
-        if (n !== null) {
-          out[key] = n;
-          break;
-        }
-      }
-    }
-  }
-
-  return out;
-}
-
-function extractValuesByOrder(text, schema) {
-  const clean = normalizeOCRText(text);
-  const matches = clean.match(/-?\d{1,3}(?:[.\s]\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?/g) || [];
-  const nums = matches.map(parseNumberFromString).filter(n => n !== null);
-
-  const out = { ...schema.values };
-  for (let i = 0; i < schema.order.length; i++) out[schema.order[i]] = nums[i] ?? 0;
-  return out;
-}
-
-// ---- p5 Visual (shapes + hover + legend)
+// ---- p5 Visual: “meduse nel mare”
 function mountSketch(state) {
+  if (!canvasMount) return;
+
   if (p5Instance) {
     p5Instance.remove();
     p5Instance = null;
   }
 
   const W = canvasMount.clientWidth;
-  const H = Math.max(520, Math.floor(W * 0.72));
+  const H = Math.max(580, Math.floor(W * 0.70));
+
+  const schema = defaultSchema;
+  const entries = schema.order.map(k => ({
+    key: k,
+    label: schema.labels[k],
+    value: Number(state.values?.[k] ?? 0)
+  }));
+
+  const vals = entries.map(e => Math.max(0, e.value));
+  const vmax = Math.max(...vals, 1);
+  const vmin = Math.min(...vals, 0);
+
+  const palette = {
+    bg: "#060a12",
+    haze: "#0d1b2a",
+    ink: "#d6e2ff",
+    caption: "#c9d4ea",
+    cMin: "#4dd4c6",
+    cMax: "#ff6aa2"
+  };
+
+  function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
+  function intensityFor(v) {
+    if (vmax === vmin) return 0.5;
+    return clamp01((v - vmin) / (vmax - vmin));
+  }
+
+  // size log-compress: 0..1
+  function sizeForValue(p, v) {
+    const nv = Math.log1p(Math.max(0, v)) / Math.log1p(vmax);
+    return p.lerp(36, 120, clamp01(nv));
+  }
+
+  function hexToRgb(hex) {
+    const h = hex.replace("#", "");
+    const full = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+    const n = parseInt(full, 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  function mixHex(a, b, t) {
+    const A = hexToRgb(a), B = hexToRgb(b);
+    const r = Math.round(A.r + (B.r - A.r) * t);
+    const g = Math.round(A.g + (B.g - A.g) * t);
+    const bb = Math.round(A.b + (B.b - A.b) * t);
+    return `rgb(${r},${g},${bb})`;
+  }
+
+  function rgbaFromRgbString(rgbStr, a) {
+    const m = rgbStr.match(/(\d+),(\d+),(\d+)/);
+    if (!m) return [255, 255, 255, a];
+    return [Number(m[1]), Number(m[2]), Number(m[3]), a];
+  }
+
+  // Jelly objects
+  const jellies = entries.map((e, i) => ({
+    id: i + 1,
+    key: e.key,
+    label: e.label,
+    value: e.value,
+    info: interpretHumanismForKey(e.key, e.value),
+    r: 50,
+    color: "rgb(255,255,255)",
+    x0: 0, y0: 0,
+    x: 0, y: 0,
+    vx: 0, vy: 0,
+    phase: i * 9.7,
+    hover: false
+  }));
+
+  // Layout (griglia editoriale 3x2 con piccola asimmetria)
+  function layout(p) {
+    const cols = 3;
+    const padX = W * 0.14;
+    const padY = H * 0.18;
+    const cellW = (W - padX * 2) / (cols - 1);
+    const cellH = (H - padY * 2) / 1; // 2 righe -> una distanza
+
+    jellies.forEach((j, i) => {
+      const c = i % cols;
+      const r = Math.floor(i / cols);
+
+      const x = padX + c * cellW + (r ? -10 : 10) + (c === 1 ? 12 : 0);
+      const y = padY + r * cellH + (c === 2 ? 10 : 0);
+
+      j.x0 = x;
+      j.y0 = y;
+      j.x = x;
+      j.y = y;
+
+      const inten = intensityFor(j.value);
+      j.color = mixHex(palette.cMin, palette.cMax, inten);
+      j.r = sizeForValue(p, j.value);
+    });
+  }
 
   const sketch = (p) => {
     let t = 0;
-
-    // modello visivo: 1 forma per dato
-    const model = buildVisualModel(state.values, state.palette, state.mapping);
-    const shapes = model.shapes;
-    // convert rel positions to absolute
-for (const s of shapes) {
-  s.x0 = s.x0_rel * W;
-  s.y0 = s.y0_rel * H;
-}
-
-
-    // “fisica” semplice
-    for (const s of shapes) {
-      s.vx = 0; s.vy = 0;
-      s.x = s.x0; s.y = s.y0;
-    }
 
     p.setup = () => {
       const c = p.createCanvas(W, H);
       c.parent(canvasMount);
       p.pixelDensity(1);
+      p.noiseDetail(3, 0.45);
       p.textFont("ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial");
+      layout(p);
     };
 
     p.draw = () => {
       t += 0.012;
+      p.background(palette.bg);
+      drawHaze(p, t, palette);
 
-      // bg
-      p.background(state.palette.bg);
-      drawFog(p, state.palette.fog, t);
+      const hovered = pickHovered(p);
 
-      const mx = p.mouseX, my = p.mouseY;
+      // update + draw
+      for (const j of jellies) {
+        j.hover = hovered && hovered.id === j.id;
 
-      // update shapes (hover repulsion + spring to base)
-      for (const s of shapes) {
-        // spring verso posizione base
-        const ax0 = (s.x0 - s.x) * 0.02;
-        const ay0 = (s.y0 - s.y) * 0.02;
+        // flow field (corrente)
+        const ang = p.noise(j.id * 2.1, j.x * 0.002, j.y * 0.002, t * 0.20) * p.TWO_PI * 2;
+        const axF = Math.cos(ang) * 0.06;
+        const ayF = Math.sin(ang) * 0.06;
 
-        // repulsione dal mouse
-        const dx = s.x - mx;
-        const dy = s.y - my;
-        const dist = Math.hypot(dx, dy);
-        const hoverR = s.r * 1.2 + 30;
+        // spring verso base
+        const axHome = (j.x0 - j.x) * 0.012;
+        const ayHome = (j.y0 - j.y) * 0.012;
 
+        // hover: attrazione dolce (come se il mouse fosse una luce)
         let axM = 0, ayM = 0;
-        s.hover = false;
-
-        if (dist < hoverR) {
-          s.hover = true;
-          const f = (1 - dist / hoverR) * 0.9;
-          axM = (dx / (dist + 0.001)) * f * 6;
-          ayM = (dy / (dist + 0.001)) * f * 6;
+        if (j.hover) {
+          const dx = p.mouseX - j.x;
+          const dy = p.mouseY - j.y;
+          axM = dx * 0.002;
+          ayM = dy * 0.002;
         }
 
-        // micro wobble
-        const wob = 0.7;
-        const axW = (p.noise(s.id * 10.1, t) - 0.5) * wob;
-        const ayW = (p.noise(s.id * 12.7, t + 2) - 0.5) * wob;
+        // damping setoso
+        j.vx = (j.vx + axF + axHome + axM) * 0.92;
+        j.vy = (j.vy + ayF + ayHome + ayM) * 0.92;
+        j.x += j.vx;
+        j.y += j.vy;
 
-        s.vx = (s.vx + ax0 + axM + axW) * 0.90;
-        s.vy = (s.vy + ay0 + ayM + ayW) * 0.90;
-
-        s.x += s.vx;
-        s.y += s.vy;
+        drawJelly(p, j, t, palette, rgbaFromRgbString);
       }
 
-      // draw depth layers: shadow first
-      for (const s of shapes) {
-        drawShadow(p, s);
-      }
+      if (hovered) drawTooltip(p, hovered, palette, rgbaFromRgbString);
 
-      // draw main shapes
-      for (const s of shapes) {
-        drawShape(p, s);
-      }
-
-      // legend (mapping: forma/colore/dimensione)
-      drawLegend(p, model, state.palette);
-
-      // tooltip hover
-      const hovered = shapes.find(s => s.hover) || pickHoveredByHit(p, shapes);
-      if (hovered) drawTooltip(p, hovered, state.palette);
-
-      // caption
+      // footer small
       p.noStroke();
-      p.fill(state.palette.caption);
+      p.fill(...rgbaFromRgbString("rgb(201,212,234)", 210));
       p.textSize(12);
-      p.text(state.caption, 14, p.height - 14);
+      p.text("Hover sulle meduse per leggere il significato dei dati.", 14, p.height - 14);
     };
 
-    function pickHoveredByHit(p, shapes) {
-      // hit-test se il mouse è dentro forma (approssimazione con r)
-      for (const s of shapes) {
-        const d = Math.hypot(p.mouseX - s.x, p.mouseY - s.y);
-        if (d < s.r * 0.9) return s;
+    function pickHovered(p) {
+      let best = null;
+      let bestD = Infinity;
+      for (const j of jellies) {
+        const d = Math.hypot(p.mouseX - j.x, p.mouseY - j.y);
+        if (d < j.r * 0.95 && d < bestD) {
+          best = j; bestD = d;
+        }
       }
-      return null;
-    }
-
-    function drawFog(p, fogHex, t) {
-      const fog = hexToRGBA(fogHex, 18);
-      p.noStroke();
-      for (let i = 0; i < 10; i++) {
-        p.fill(...fog);
-        const rx = p.width * p.noise(i * 7.1, t * 0.2);
-        const ry = p.height * p.noise(i * 9.3, t * 0.2 + 2);
-        const rr = p.lerp(140, 340, p.noise(i * 3.7, t * 0.15));
-        p.ellipse(rx, ry, rr, rr);
-      }
-    }
-
-    function drawShadow(p, s) {
-      p.noStroke();
-      p.fill(0, 0, 0, 50);
-      p.ellipse(s.x + 12, s.y + 18, s.r * 2.2, s.r * 1.4);
-    }
-
-    function drawShape(p, s) {
-      // contorno
-      p.stroke(...hexToRGBA(state.palette.line, s.hover ? 210 : 150));
-      p.strokeWeight(s.hover ? 2.1 : 1.3);
-      p.fill(...hexToRGBA(s.color, s.hover ? 220 : 190));
-
-      const z = s.depth; // “finto” 3d: scale e offset
-      p.push();
-      p.translate(s.x, s.y);
-      p.scale(1 - z * 0.06);
-
-      // piccolo highlight
-      p.noStroke();
-      p.fill(255, 255, 255, s.hover ? 35 : 22);
-      p.ellipse(-s.r * 0.25, -s.r * 0.25, s.r * 0.55, s.r * 0.35);
-
-      // shape principale
-      p.stroke(...hexToRGBA(state.palette.line, s.hover ? 210 : 150));
-      p.fill(...hexToRGBA(s.color, s.hover ? 220 : 190));
-
-      switch (s.shape) {
-        case "circle":
-          p.ellipse(0, 0, s.r * 2, s.r * 2);
-          break;
-        case "square":
-          p.rectMode(p.CENTER);
-          p.rect(0, 0, s.r * 2, s.r * 2, 14);
-          break;
-        case "triangle":
-          p.triangle(-s.r, s.r, 0, -s.r, s.r, s.r);
-          break;
-        case "hex":
-          drawPolygon(p, 0, 0, s.r, 6);
-          break;
-        case "diamond":
-          p.beginShape();
-          p.vertex(0, -s.r);
-          p.vertex(s.r, 0);
-          p.vertex(0, s.r);
-          p.vertex(-s.r, 0);
-          p.endShape(p.CLOSE);
-          break;
-        default:
-          drawBlob(p, s);
-      }
-
-      // label minimo vicino alla forma (sempre visibile)
-      p.noStroke();
-      p.fill(...hexToRGBA(state.palette.caption, 210));
-      p.textSize(12);
-      p.textAlign(p.CENTER, p.TOP);
-      p.text(`${s.label}: ${s.value}`, 0, s.r + 10);
-
-      p.pop();
-    }
-
-    function drawBlob(p, s) {
-      p.beginShape();
-      for (let a = 0; a < p.TWO_PI + 0.01; a += 0.55) {
-        const n = p.noise(Math.cos(a) * 0.8 + s.id * 3.1, Math.sin(a) * 0.8 + t * 0.6);
-        const rr = s.r * (0.85 + n * 0.45);
-        p.vertex(Math.cos(a) * rr, Math.sin(a) * rr);
-      }
-      p.endShape(p.CLOSE);
-    }
-
-    function drawPolygon(p, x, y, r, n) {
-      p.beginShape();
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * p.TWO_PI;
-        p.vertex(x + Math.cos(a) * r, y + Math.sin(a) * r);
-      }
-      p.endShape(p.CLOSE);
-    }
-
-    function drawLegend(p, model, palette) {
-      const x = 14;
-      const y = 14;
-      const w = Math.min(420, p.width - 28);
-      const h = 138;
-
-      p.noStroke();
-      p.fill(0, 0, 0, 35);
-      p.rect(x, y, w, h, 14);
-
-      p.noStroke();
-      p.fill(...hexToRGBA(palette.caption, 220));
-      p.textSize(12);
-      p.textAlign(p.LEFT, p.TOP);
-      p.text("Legenda (mappatura dati → forme)", x + 12, y + 10);
-
-      p.fill(...hexToRGBA(palette.caption, 170));
-      p.text("• Forma = categoria   • Grandezza = valore   • Colore = intensità (min→max)", x + 12, y + 30);
-
-      // mini swatches min/max
-      p.fill(...hexToRGBA(model.minColor, 210));
-      p.rect(x + 12, y + 54, 22, 10, 3);
-      p.fill(...hexToRGBA(model.maxColor, 210));
-      p.rect(x + 40, y + 54, 22, 10, 3);
-
-      p.fill(...hexToRGBA(palette.caption, 170));
-      p.text(`min ${model.minValue}  max ${model.maxValue}`, x + 70, y + 52);
-
-      // elenco righe
-      let yy = y + 72;
-      for (const s of shapes) {
-        p.fill(...hexToRGBA(s.color, 220));
-        p.rect(x + 12, yy + 4, 10, 10, 2);
-
-        p.fill(...hexToRGBA(palette.caption, 210));
-        p.text(`${s.label} → ${s.value}`, x + 28, yy);
-
-        yy += 18;
-      }
-    }
-
-    function drawTooltip(p, s, palette) {
-      const pad = 10;
-      const txt = `${s.label}\nValore: ${s.value}\nForma: ${s.shape}\nColore/Intensità: ${s.intensity.toFixed(2)}`;
-      const lines = txt.split("\n");
-
-      p.textSize(12);
-      const w = Math.min(280, Math.max(...lines.map(l => p.textWidth(l))) + pad * 2);
-      const h = lines.length * 16 + pad * 2;
-
-      let x = p.mouseX + 14;
-      let y = p.mouseY + 14;
-      if (x + w > p.width - 10) x = p.width - w - 10;
-      if (y + h > p.height - 10) y = p.height - h - 10;
-
-      p.noStroke();
-      p.fill(0, 0, 0, 160);
-      p.rect(x, y, w, h, 12);
-
-      p.fill(...hexToRGBA(palette.caption, 235));
-      let yy = y + pad;
-      for (const l of lines) {
-        p.text(l, x + pad, yy);
-        yy += 16;
-      }
-    }
-
-    function hexToRGBA(hex, a = 255) {
-      const h = hex.replace("#", "");
-      const full = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
-      const n = parseInt(full, 16);
-      return [(n >> 16) & 255, (n >> 8) & 255, n & 255, a];
+      return best;
     }
   };
 
   p5Instance = new p5(sketch);
+}
+
+function drawHaze(p, t, palette) {
+  p.noStroke();
+  for (let i = 0; i < 10; i++) {
+    const rx = p.width * p.noise(i * 7.1, t * 0.18);
+    const ry = p.height * p.noise(i * 9.3, t * 0.18 + 2);
+    const rr = p.lerp(180, 390, p.noise(i * 3.7, t * 0.14));
+    p.fill(13, 27, 42, 18);
+    p.ellipse(rx, ry, rr, rr);
+  }
+}
+
+function drawJelly(p, j, t, palette, rgbaFromRgbString) {
+  const baseCol = rgbaFromRgbString(j.color, j.hover ? 220 : 175);
+  const edgeCol = rgbaFromRgbString("rgb(214,226,255)", j.hover ? 200 : 120);
+
+  // shadow
+  p.noStroke();
+  p.fill(0, 0, 0, 40);
+  p.ellipse(j.x + 10, j.y + 16, j.r * 2.2, j.r * 1.2);
+
+  p.push();
+  p.translate(j.x, j.y);
+
+  const phase = t + j.phase;
+  const wob = 0.18 + (j.hover ? 0.10 : 0.0);
+  const rx = j.r * (1.05 + Math.sin(phase * 0.9) * wob);
+  const ry = j.r * (0.85 + Math.cos(phase * 0.7) * wob);
+
+  // glow
+  p.noStroke();
+  p.fill(...rgbaFromRgbString(j.color, j.hover ? 42 : 26));
+  p.ellipse(0, 0, rx * 2.4, ry * 2.1);
+
+  // bell
+  p.stroke(...edgeCol);
+  p.strokeWeight(j.hover ? 2.1 : 1.2);
+  p.fill(...baseCol);
+
+  p.beginShape();
+  const pts = 16;
+  for (let i = 0; i <= pts + 2; i++) {
+    const a = (i / pts) * p.TWO_PI;
+    const n = p.noise(Math.cos(a) * 0.9 + j.id * 2.2, Math.sin(a) * 0.9 + phase * 0.6);
+    const r = 1.0 + (n - 0.5) * 0.35;
+    const x = Math.cos(a) * rx * r;
+    const y = Math.sin(a) * ry * r * 0.78;
+    p.curveVertex(x, y);
+  }
+  p.endShape(p.CLOSE);
+
+  // label under
+  p.noStroke();
+  p.fill(...rgbaFromRgbString("rgb(201,212,234)", 235));
+  p.textAlign(p.CENTER, p.TOP);
+  p.textSize(12);
+  p.text(`${j.label}: ${formatNum(j.value)}`, 0, j.r * 0.95 + 10);
+
+  // tentacles
+  drawTentacles(p, j, rx, ry, phase, rgbaFromRgbString);
+
+  p.pop();
+}
+
+function drawTentacles(p, j, rx, ry, phase, rgbaFromRgbString) {
+  const nTent = 9;
+  const vmax = 120;
+  const len = p.lerp(60, 145, Math.min(1, j.r / vmax));
+  const sway = 10 + (j.hover ? 10 : 0);
+
+  p.noFill();
+  p.stroke(...rgbaFromRgbString(j.color, j.hover ? 140 : 90));
+  p.strokeWeight(1);
+
+  for (let i = 0; i < nTent; i++) {
+    const u = (i / (nTent - 1)) * 1.6 - 0.8;
+    const x0 = u * rx * 0.75;
+    const y0 = ry * 0.55;
+
+    p.beginShape();
+    for (let s = 0; s < 12; s++) {
+      const v = s / 11;
+      const x = x0 + Math.sin(phase * 1.2 + v * 3 + i) * sway * (1 - v);
+      const y = y0 + v * len + p.noise(i * 3.3, v * 2.1, phase * 0.6) * 8;
+      p.curveVertex(x, y);
+    }
+    p.endShape();
+  }
+}
+
+function drawTooltip(p, j, palette, rgbaFromRgbString) {
+  const pad = 12;
+  const title = `${j.label} — ${formatNum(j.value)}`;
+  const body = j.info;
+
+  p.textSize(12);
+  const maxW = Math.min(380, p.width - 40);
+
+  const lines = wrapText(p, body, maxW - pad * 2);
+  const w = Math.min(
+    maxW,
+    Math.max(p.textWidth(title), ...lines.map(l => p.textWidth(l))) + pad * 2
+  );
+  const h = pad * 2 + 16 + lines.length * 16;
+
+  let x = p.mouseX + 16;
+  let y = p.mouseY + 16;
+  if (x + w > p.width - 10) x = p.width - w - 10;
+  if (y + h > p.height - 10) y = p.height - h - 10;
+
+  p.noStroke();
+  p.fill(0, 0, 0, 175);
+  p.rect(x, y, w, h, 14);
+
+  p.fill(...rgbaFromRgbString("rgb(214,226,255)", 235));
+  p.textAlign(p.LEFT, p.TOP);
+  p.text(title, x + pad, y + pad);
+
+  p.fill(...rgbaFromRgbString("rgb(201,212,234)", 225));
+  let yy = y + pad + 18;
+  for (const l of lines) {
+    p.text(l, x + pad, yy);
+    yy += 16;
+  }
+}
+
+function wrapText(p, str, maxWidth) {
+  const words = String(str).split(/\s+/);
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? (line + " " + w) : w;
+    if (p.textWidth(test) > maxWidth && line) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
 }
