@@ -3,72 +3,34 @@
 <html lang="it">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Quello che i dati non dicono — Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OCR Demo – Quello che i dati non dicono</title>
 
   <link rel="stylesheet" href="style.css" />
 
-  <!-- p5.js -->
+  <!-- p5.js (GLOBAL) -->
   <script src="https://cdn.jsdelivr.net/npm/p5@1.9.3/lib/p5.min.js"></script>
 </head>
 
 <body>
   <main class="wrap">
-    <header class="top">
-      <h1>Quello che i dati non dicono — Demo</h1>
-      <p class="sub">Upload → OCR → conferma → visual → video</p>
-    </header>
+    <h1>OCR Demo</h1>
 
-    <section class="panel">
-      <div class="row">
-        <label class="btn">
-          <input id="fileInput" type="file" accept="image/png,image/jpeg" />
-          Scegli uno screenshot
-        </label>
+    <input id="fileInput" type="file" accept="image/png,image/jpeg" />
+    <button id="btnAnalyze" disabled>Analizza (OCR)</button>
 
-        <button id="btnAnalyze" class="btn primary" disabled>Analizza (OCR)</button>
-        <button id="btnToggleValues" class="btn ghost" disabled>Correggi valori</button>
-      </div>
+    <p id="status">Carica un'immagine.</p>
 
-      <div class="row thin">
-        <div id="status" class="status">Carica uno screenshot.</div>
-      </div>
+    <details>
+      <summary>Testo OCR</summary>
+      <pre id="debug"></pre>
+    </details>
 
-      <div class="grid">
-        <div class="col">
-          <h2>Narrazione</h2>
-          <div id="narrative" class="card">
-            <p class="muted">In attesa di valori confermati.</p>
-          </div>
-
-          <div id="valuesBox" class="card hidden">
-            <h3>Valori riconosciuti (da confermare)</h3>
-            <div id="fields" class="fields"></div>
-
-            <div class="row">
-              <button id="btnApply" class="btn primary">Applica</button>
-              <button id="btnHide" class="btn ghost">Nascondi</button>
-            </div>
-          </div>
-
-          <details class="card">
-            <summary>Debug (testo OCR)</summary>
-            <pre id="debug" class="debug"></pre>
-          </details>
-        </div>
-
-        <div class="col">
-          <h2>Visual</h2>
-          <div id="canvasMount" class="canvasMount"></div>
-          <p class="muted small">
-            Tutto avviene in locale nel browser.
-          </p>
-        </div>
-      </div>
-    </section>
+    <h2>Visual</h2>
+    <div id="canvasMount"></div>
   </main>
 
-  <!-- ✅ MAIN JS (ES MODULE) -->
+  <!-- ✅ IL TUO JS (ES MODULE) -->
   <script type="module" src="./main.js"></script>
 </body>
 </html>
